@@ -1,0 +1,18 @@
+[package]
+name = "ethers-transports"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+async-trait = "0.1.66"
+base64 = "0.21.0"
+futures-channel = "0.3.27"
+jsonrpsee-types = "0.16.2"
+reqwest = { version = "0.11.14", features = ["serde_json", "json"] }
+serde = "1.0.154"
+serde_json = { version = "1.0.94", features = ["raw_value"] }
+thiserror = "1.0.39"
+tracing = "0.1.37"
+
+[dev-dependencies]
+tokio = { version = "1.26.0", features = ["macros"] }
