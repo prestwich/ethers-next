@@ -5,6 +5,6 @@ mod error;
 pub use error::TransportError;
 
 mod transport;
-pub use transport::{PubSubTransport, Transport};
+pub use transport::{Connection, PubSubConnection};
 
 pub mod transports;

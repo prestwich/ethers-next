@@ -1,0 +1,8 @@
+[package]
+name = "ethers-provider"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ethers-pub-use = { version = "0.1.0", path = "../ethers-pub-use" }
+ethers-transports = { version = "0.1.0", path = "../ethers-transports" }

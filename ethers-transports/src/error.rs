@@ -1,3 +1,5 @@
+use ethers_pub_use::{serde_json, thiserror};
+
 #[derive(thiserror::Error, Debug)]
 pub enum TransportError {
     /// SerdeJson (de)ser

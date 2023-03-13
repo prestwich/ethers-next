@@ -1,6 +1,8 @@
 [workspace]
 members = [
-    "ethers-transports"
+    "ethers-pub-use",
+    "ethers-transports",
+    "ethers-provider",
 ]
 
 [patch.crates-io]

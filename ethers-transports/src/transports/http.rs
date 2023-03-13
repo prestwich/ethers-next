@@ -1,5 +1,6 @@
 use std::{
     ops::Deref,
+    str::FromStr,
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc,
@@ -8,9 +9,11 @@ use std::{
 
 use reqwest::{header::HeaderValue, Client, Url};
 
+use ethers_pub_use::async_trait;
+
 use crate::{
     common::{Authorization, RawRpcResponse},
-    transport::Transport,
+    transport::Connection,
     utils::resp_to_raw_result,
     TransportError,
 };
@@ -22,6 +25,16 @@ pub struct HttpInternal {
     url: Url,
 }
 
+impl HttpInternal {
+    pub fn new(url: Url) -> Self {
+        Self {
+            id: Default::default(),
+            client: Default::default(),
+            url,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Http(Arc<HttpInternal>);
 
@@ -30,6 +43,14 @@ impl Deref for Http {
 
     fn deref(&self) -> &Self::Target {
         self.0.deref()
+    }
+}
+
+impl FromStr for Http {
+    type Err = <Url as FromStr>::Err;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.parse().map(Self::new)
     }
 }
 
@@ -62,8 +83,13 @@ impl Http {
     }
 }
 
-#[async_trait::async_trait]
-impl Transport for Http {
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+impl Connection for Http {
+    fn is_local(&self) -> bool {
+        self.url.as_str().contains("127.0.0.1") || self.url.as_str().contains("localhost")
+    }
+
     fn increment_id(&self) -> u64 {
         self.id.fetch_add(1, Ordering::Relaxed)
     }
@@ -85,7 +111,7 @@ impl Transport for Http {
 
 #[cfg(test)]
 mod test {
-    use crate::Transport;
+    use crate::Connection;
 
     use super::Http;
 

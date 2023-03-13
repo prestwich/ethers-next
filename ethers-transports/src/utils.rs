@@ -1,8 +1,10 @@
 use std::borrow::Cow;
 
+use ethers_pub_use::{
+    serde::{de::DeserializeOwned, Serialize},
+    serde_json::{self, value::RawValue},
+};
 use jsonrpsee_types::{ErrorResponse, Response};
-use serde::{de::DeserializeOwned, Serialize};
-use serde_json::value::RawValue;
 
 use crate::{common::RawRpcResponse, TransportError};
 

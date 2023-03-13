@@ -1,6 +1,8 @@
-use serde::{de::DeserializeOwned, Serialize};
-
-use serde_json::value::RawValue;
+use ethers_pub_use::{
+    async_trait, futures_channel,
+    serde::{de::DeserializeOwned, Serialize},
+    serde_json::value::RawValue,
+};
 
 use std::{borrow::Cow, fmt::Debug, future::Future, pin::Pin};
 
@@ -8,24 +10,23 @@ use crate::{common::*, TransportError};
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-pub trait Transport: Debug + Send + Sync {
+pub trait Connection: Debug + Send + Sync {
+    fn is_local(&self) -> bool;
+
     fn increment_id(&self) -> u64;
 
     fn next_id(&self) -> Id<'static> {
         Id::Number(self.increment_id())
     }
 
-    async fn json_rpc_request(
-        &self,
-        req: &jsonrpsee_types::Request<'_>,
-    ) -> Result<RawRpcResponse, TransportError>;
+    async fn json_rpc_request(&self, req: &Request<'_>) -> Result<RawRpcResponse, TransportError>;
 
     async fn request_raw(
         &self,
         method: &str,
         params: &RawValue,
     ) -> Result<RawRpcResult, TransportError> {
-        let req = jsonrpsee_types::Request::new(method.into(), Some(params), self.next_id());
+        let req = Request::new(method.into(), Some(params), self.next_id());
 
         let resp = self.json_rpc_request(&req).await?;
 
@@ -63,7 +64,7 @@ pub trait Transport: Debug + Send + Sync {
     }
 }
 
-pub trait PubSubTransport: Transport {
+pub trait PubSubConnection: Connection {
     #[doc(hidden)]
     fn uninstall_listener(&self, id: [u8; 32]) -> Result<(), TransportError>;
 
@@ -76,12 +77,12 @@ pub trait PubSubTransport: Transport {
 
 #[cfg(test)]
 mod test {
-    use crate::{PubSubTransport, Transport};
+    use crate::{Connection, PubSubConnection};
 
-    fn __compile_check() -> Box<dyn Transport> {
+    fn __compile_check() -> Box<dyn Connection> {
         todo!()
     }
-    fn __compile_check_pubsub() -> Box<dyn PubSubTransport> {
+    fn __compile_check_pubsub() -> Box<dyn PubSubConnection> {
         todo!()
     }
 }

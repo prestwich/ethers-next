@@ -1,8 +1,8 @@
 use base64::{engine::general_purpose, Engine};
-use serde_json::value::RawValue;
+use ethers_pub_use::serde_json::value::RawValue;
 use std::{borrow::Cow, fmt};
 
-pub use jsonrpsee_types::{ErrorObject, ErrorResponse, Id, Response};
+pub use jsonrpsee_types::{ErrorObject, ErrorResponse, Id, Request, Response};
 
 type ReqRes<'a, T> = Result<jsonrpsee_types::Response<'a, T>, ErrorResponse<'a>>;
 type RawRes<'a> = ReqRes<'a, Cow<'a, RawValue>>;
