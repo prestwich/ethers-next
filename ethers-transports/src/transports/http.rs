@@ -101,7 +101,7 @@ impl Connection for Http {
         })
     }
 
-    fn batch_request(&self, reqs: &[&common::Request<'_>]) -> common::BatchRpcFuture {
+    fn batch_request(&self, reqs: &[common::Request<'_>]) -> common::BatchRpcFuture {
         let fut = self.client.post(self.url.as_ref()).json(&reqs).send();
 
         Box::pin(async move {

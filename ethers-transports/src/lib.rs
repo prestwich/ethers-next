@@ -10,3 +10,4 @@ mod transport;
 pub use transport::{Connection, PubSubConnection};
 
 pub mod transports;
+pub use transports::Http;

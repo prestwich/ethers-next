@@ -121,7 +121,7 @@ where
         self.transport.json_rpc_request(req)
     }
 
-    fn batch_request(&self, reqs: &[&Request<'_>]) -> BatchRpcFuture {
+    fn batch_request(&self, reqs: &[Request<'_>]) -> BatchRpcFuture {
         self.transport.batch_request(reqs)
     }
 }

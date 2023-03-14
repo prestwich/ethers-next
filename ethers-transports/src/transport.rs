@@ -1,5 +1,5 @@
 use ethers_pub_use::{
-    futures_channel,
+    futures_channel::mpsc::UnboundedReceiver,
     serde::{Deserialize, Serialize},
     serde_json::value::RawValue,
 };
@@ -19,7 +19,7 @@ pub trait Connection: Debug + Send + Sync {
 
     fn json_rpc_request(&self, req: &Request<'_>) -> RpcFuture;
 
-    fn batch_request(&self, reqs: &[&Request<'_>]) -> BatchRpcFuture;
+    fn batch_request(&self, reqs: &[Request<'_>]) -> BatchRpcFuture;
 
     fn request<Params, Resp>(
         &self,
@@ -43,29 +43,17 @@ pub trait PubSubConnection: Connection {
     fn install_listener(
         &self,
         id: [u8; 32],
-    ) -> Result<futures_channel::mpsc::UnboundedReceiver<Cow<RawValue>>, TransportError>;
+    ) -> Result<UnboundedReceiver<Cow<RawValue>>, TransportError>;
 }
 
 #[cfg(test)]
 mod test {
-    use crate::{transports::Http, Connection, PubSubConnection};
+    use crate::{Connection, PubSubConnection};
 
     fn __compile_check() -> Box<dyn Connection> {
         todo!()
     }
     fn __compile_check_pubsub() -> Box<dyn PubSubConnection> {
         todo!()
-    }
-
-    #[tokio::test]
-    async fn it_calls() {
-        let http: Http = "http://127.0.0.1:8545".parse().unwrap();
-        let resp: String = http.request("eth_chainId", ()).await.unwrap().unwrap();
-        dbg!(resp);
-    }
-
-    #[tokio::test]
-    async fn it_batch_calls() {
-        let http: Http = "http://127.0.0.1:8545".parse().unwrap();
     }
 }
