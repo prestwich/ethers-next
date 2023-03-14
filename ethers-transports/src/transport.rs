@@ -21,7 +21,7 @@ pub trait Connection: Debug + Send + Sync {
 
     fn batch_request(&self, reqs: Vec<&Request<'_>>) -> BatchRpcFuture;
 
-    fn prep_request<Params, Resp>(
+    fn request<Params, Resp>(
         &self,
         method: &'static str,
         params: Params,
