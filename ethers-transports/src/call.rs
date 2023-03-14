@@ -1,4 +1,5 @@
 use std::{
+    borrow::Borrow,
     future::Future,
     marker::PhantomData,
     pin::Pin,
@@ -14,12 +15,13 @@ use crate::{
     Connection, TransportError,
 };
 
-pub enum CallState<T, Params> {
+pub enum CallState<B, T, Params> {
     Prepared {
-        connection: T,
+        connection: B,
         method: &'static str,
         params: Params,
         id: Id<'static>,
+        _pd: PhantomData<T>,
     },
     AwaitingResponse {
         fut: RpcFuture,
@@ -28,24 +30,26 @@ pub enum CallState<T, Params> {
     Running,
 }
 
-impl<T, Params> CallState<T, Params> {
+impl<B, T, Params> CallState<B, T, Params> {
     pub fn new(
-        connection: T,
+        connection: B,
         method: &'static str,
         params: Params,
         id: Id<'static>,
-    ) -> CallState<T, Params> {
+    ) -> CallState<B, T, Params> {
         Self::Prepared {
             connection,
             method,
             params,
             id,
+            _pd: PhantomData,
         }
     }
 }
 
-impl<T, Params> CallState<T, Params>
+impl<B, T, Params> CallState<B, T, Params>
 where
+    B: Borrow<T> + Unpin,
     T: Connection + Unpin,
     Params: Serialize + Unpin,
 {
@@ -58,6 +62,7 @@ where
                 method,
                 params,
                 id,
+                ..
             } => {
                 let params = to_json_raw_value(&params);
                 if let Err(err) = params {
@@ -66,7 +71,7 @@ where
                 }
                 let params = params.unwrap();
                 let req = Request::owned(id, method, Some(params));
-                let fut = connection.json_rpc_request(&req);
+                let fut = connection.borrow().json_rpc_request(&req);
                 *self = CallState::AwaitingResponse { fut };
                 cx.waker().wake_by_ref();
                 Poll::Pending
@@ -91,8 +96,9 @@ where
     }
 }
 
-impl<T, Params> Future for CallState<T, Params>
+impl<B, T, Params> Future for CallState<B, T, Params>
 where
+    B: Borrow<T> + Unpin,
     T: Connection + Unpin,
     Params: Serialize + Unpin,
 {
@@ -108,13 +114,13 @@ where
     }
 }
 
-pub struct RpcCall<T, Params, Resp> {
-    state: CallState<T, Params>,
+pub struct RpcCall<B, T, Params, Resp> {
+    state: CallState<B, T, Params>,
     resp: PhantomData<fn() -> Resp>,
 }
 
-impl<T, Params, Resp> RpcCall<T, Params, Resp> {
-    pub fn new(connection: T, method: &'static str, params: Params, id: Id<'static>) -> Self {
+impl<B, T, Params, Resp> RpcCall<B, T, Params, Resp> {
+    pub fn new(connection: B, method: &'static str, params: Params, id: Id<'static>) -> Self {
         Self {
             state: CallState::new(connection, method, params, id),
             resp: PhantomData,
@@ -122,8 +128,9 @@ impl<T, Params, Resp> RpcCall<T, Params, Resp> {
     }
 }
 
-impl<T, Params, Resp> Future for RpcCall<T, Params, Resp>
+impl<B, T, Params, Resp> Future for RpcCall<B, T, Params, Resp>
 where
+    B: Borrow<T> + Unpin,
     T: Connection + Unpin,
     Params: Serialize + Unpin,
     Resp: for<'de> Deserialize<'de> + Unpin,
