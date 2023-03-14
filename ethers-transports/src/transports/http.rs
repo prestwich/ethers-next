@@ -7,14 +7,13 @@ use std::{
     },
 };
 
+use ethers_pub_use::serde_json::{self, value::RawValue};
 use reqwest::{header::HeaderValue, Client, Url};
 
-use ethers_pub_use::async_trait;
-
 use crate::{
-    common::{Authorization, RawRpcResponse},
+    common::{self, Authorization, BatchRpcOutcome, RpcFuture},
     transport::Connection,
-    utils::resp_to_raw_result,
+    utils::deser_rpc_result,
     TransportError,
 };
 
@@ -83,8 +82,6 @@ impl Http {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Connection for Http {
     fn is_local(&self) -> bool {
         self.url.as_str().contains("127.0.0.1") || self.url.as_str().contains("localhost")
@@ -94,31 +91,38 @@ impl Connection for Http {
         self.id.fetch_add(1, Ordering::Relaxed)
     }
 
-    async fn json_rpc_request(
-        &self,
-        req: &jsonrpsee_types::Request<'_>,
-    ) -> Result<RawRpcResponse, TransportError> {
-        let res = self
-            .client
-            .post(self.url.as_ref())
-            .json(&req)
-            .send()
-            .await?;
-        let body = res.text().await?;
-        resp_to_raw_result(&body)
+    fn json_rpc_request(&self, req: &common::Request<'_>) -> RpcFuture {
+        let fut = self.client.post(self.url.as_ref()).json(&req).send();
+
+        Box::pin(async move {
+            let res = fut.await?;
+            let body = res.text().await?;
+            deser_rpc_result(&body)
+        })
+    }
+
+    fn batch_request(&self, reqs: Vec<&common::Request<'_>>) -> common::BatchRpcFuture {
+        let fut = self.client.post(self.url.as_ref()).json(&reqs).send();
+
+        Box::pin(async move {
+            let res = fut.await?;
+            let body = res.text().await?;
+
+            let resps: Result<Vec<&'_ RawValue>, _> = serde_json::from_str(&body);
+
+            if let Err(err) = resps {
+                return Err(TransportError::SerdeJson { err, text: body });
+            }
+
+            resps
+                .unwrap()
+                .into_iter()
+                .map(RawValue::get)
+                .map(deser_rpc_result)
+                .collect::<BatchRpcOutcome>()
+        })
     }
 }
 
 #[cfg(test)]
-mod test {
-    use crate::Connection;
-
-    use super::Http;
-
-    #[tokio::test]
-    async fn chain_id() {
-        let http = Http::new("http://127.0.0.1:8545".parse().unwrap());
-        let resp: String = http.request("eth_chainId", &()).await.unwrap().unwrap();
-        dbg!(&resp);
-    }
-}
+mod test {}

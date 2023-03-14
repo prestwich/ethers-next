@@ -1,24 +1,25 @@
 use std::borrow::Cow;
 
 use ethers_pub_use::{
-    serde::{de::DeserializeOwned, Serialize},
+    serde::{Deserialize, Serialize},
     serde_json::{self, value::RawValue},
 };
 use jsonrpsee_types::{ErrorResponse, Response};
 
-use crate::{common::RawRpcResponse, TransportError};
+use crate::{common::JsonRpcResultOwned, TransportError};
 
-pub fn to_json_raw_value<S>(s: &S) -> Result<Box<RawValue>, serde_json::Error>
+pub fn to_json_raw_value<S>(s: &S) -> Result<Box<RawValue>, TransportError>
 where
     S: Serialize,
 {
-    RawValue::from_string(serde_json::to_string(s)?)
+    RawValue::from_string(serde_json::to_string(s).map_err(TransportError::ser_err)?)
+        .map_err(TransportError::ser_err)
 }
 
-pub fn from_json_val<'de, T, S>(s: S) -> Result<T, TransportError>
+pub fn from_json<T, S>(s: S) -> Result<T, TransportError>
 where
-    T: DeserializeOwned,
-    S: AsRef<str> + 'de,
+    T: for<'de> Deserialize<'de>,
+    S: AsRef<str>,
 {
     let s = s.as_ref();
     match serde_json::from_str(s) {
@@ -30,13 +31,13 @@ where
     }
 }
 
-pub fn resp_to_raw_result(resp: &str) -> Result<RawRpcResponse, TransportError> {
+pub fn deser_rpc_result(resp: &str) -> Result<JsonRpcResultOwned, TransportError> {
     if let Ok(err) = serde_json::from_str::<ErrorResponse<'_>>(resp) {
-        return Ok(Err(err.into_owned()));
+        return Ok(Err(err.error_object().to_owned().into_owned()));
     }
     let deser = serde_json::from_str::<Response<'_, Cow<'_, RawValue>>>(resp);
     match deser {
-        Ok(v) => Ok(Ok(v.into_owned())),
+        Ok(v) => Ok(Ok(v.result)),
         Err(err) => Err(TransportError::SerdeJson {
             err,
             text: resp.to_owned(),

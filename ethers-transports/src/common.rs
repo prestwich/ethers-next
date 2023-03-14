@@ -1,16 +1,24 @@
 use base64::{engine::general_purpose, Engine};
 use ethers_pub_use::serde_json::value::RawValue;
-use std::{borrow::Cow, fmt};
+use std::{borrow::Cow, fmt, future::Future, pin::Pin};
 
-pub use jsonrpsee_types::{ErrorObject, ErrorResponse, Id, Request, Response};
+pub use jsonrpsee_types::{ErrorObject, ErrorResponse, Id, RequestSer as Request, Response};
 
-type ReqRes<'a, T> = Result<jsonrpsee_types::Response<'a, T>, ErrorResponse<'a>>;
-type RawRes<'a> = ReqRes<'a, Cow<'a, RawValue>>;
-pub type RpcResponse<T> = ReqRes<'static, T>;
-pub type RawRpcResponse = RawRes<'static>;
+use crate::TransportError;
 
-pub type RpcResult<T> = Result<T, ErrorObject<'static>>;
-pub type RawRpcResult = RpcResult<Cow<'static, RawValue>>;
+#[cfg(target_arch = "wasm32")]
+pub(crate) type DynFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) type DynFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+pub type JsonRpcResult<'a> = Result<Cow<'a, RawValue>, ErrorObject<'a>>;
+pub type JsonRpcResultOwned = JsonRpcResult<'static>;
+
+pub type RpcOutcome = Result<JsonRpcResultOwned, TransportError>;
+pub type BatchRpcOutcome = Result<Vec<JsonRpcResultOwned>, TransportError>;
+
+pub type RpcFuture = DynFuture<'static, RpcOutcome>;
+pub type BatchRpcFuture = DynFuture<'static, BatchRpcOutcome>;
 
 /// Basic or bearer authentication in http or websocket transport
 ///

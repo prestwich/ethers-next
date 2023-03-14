@@ -1,13 +1,7 @@
-use std::{
-    borrow::Cow, fmt::Debug, future::Future, pin::Pin, str::FromStr, sync::Arc, time::Duration,
-};
+use std::{borrow::Cow, fmt::Debug, str::FromStr, sync::Arc, time::Duration};
 
 use ethers_pub_use::{
-    async_trait,
-    futures_channel::mpsc,
-    once_cell::sync::OnceCell,
-    serde::{de::DeserializeOwned, Serialize},
-    serde_json::value::RawValue,
+    futures_channel::mpsc, once_cell::sync::OnceCell, serde_json::value::RawValue,
 };
 use ethers_transports::{
     common::*, transports::Http, Connection, PubSubConnection, TransportError,
@@ -111,8 +105,6 @@ impl FromStr for Provider<Http> {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl<T> ethers_transports::Connection for Provider<T>
 where
     T: Connection,
@@ -125,29 +117,12 @@ where
         self.transport.increment_id()
     }
 
-    async fn json_rpc_request(&self, req: &Request<'_>) -> Result<RawRpcResponse, TransportError> {
-        self.transport.json_rpc_request(req).await
+    fn json_rpc_request(&self, req: &Request<'_>) -> RpcFuture {
+        self.transport.json_rpc_request(req)
     }
 
-    async fn request_raw(
-        &self,
-        method: &str,
-        params: &RawValue,
-    ) -> Result<RawRpcResult, TransportError> {
-        self.transport.request_raw(method, params).await
-    }
-
-    fn request<Param, Resp>(
-        &self,
-        method: &'static str,
-        params: &Param,
-    ) -> Pin<Box<dyn Future<Output = Result<RpcResult<Resp>, TransportError>> + '_>>
-    where
-        Self: Sized,
-        Param: Serialize,
-        Resp: DeserializeOwned,
-    {
-        self.transport.request(method, params)
+    fn batch_request(&self, reqs: Vec<&Request<'_>>) -> BatchRpcFuture {
+        self.transport.batch_request(reqs)
     }
 }
 

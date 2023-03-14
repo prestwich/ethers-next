@@ -1,15 +1,13 @@
 use ethers_pub_use::{
-    async_trait, futures_channel,
-    serde::{de::DeserializeOwned, Serialize},
+    futures_channel,
+    serde::{Deserialize, Serialize},
     serde_json::value::RawValue,
 };
 
-use std::{borrow::Cow, fmt::Debug, future::Future, pin::Pin};
+use std::{borrow::Cow, fmt::Debug};
 
-use crate::{common::*, TransportError};
+use crate::{call::RpcCall, common::*, TransportError};
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait Connection: Debug + Send + Sync {
     fn is_local(&self) -> bool;
 
@@ -19,48 +17,21 @@ pub trait Connection: Debug + Send + Sync {
         Id::Number(self.increment_id())
     }
 
-    async fn json_rpc_request(&self, req: &Request<'_>) -> Result<RawRpcResponse, TransportError>;
+    fn json_rpc_request(&self, req: &Request<'_>) -> RpcFuture;
 
-    async fn request_raw(
-        &self,
-        method: &str,
-        params: &RawValue,
-    ) -> Result<RawRpcResult, TransportError> {
-        let req = Request::new(method.into(), Some(params), self.next_id());
+    fn batch_request(&self, reqs: Vec<&Request<'_>>) -> BatchRpcFuture;
 
-        let resp = self.json_rpc_request(&req).await?;
-
-        Ok(resp
-            .map(|r| r.result)
-            .map_err(|e| e.error_object().to_owned().into_owned()))
-    }
-
-    fn request<Param, Resp>(
+    fn prep_request<Params, Resp>(
         &self,
         method: &'static str,
-        params: &Param,
-    ) -> Pin<Box<dyn Future<Output = Result<RpcResult<Resp>, TransportError>> + '_>>
+        params: Params,
+    ) -> RpcCall<Self, Params, Resp>
     where
-        Self: Sized,
-        Param: Serialize,
-        Resp: DeserializeOwned,
+        Self: Clone,
+        Params: Serialize,
+        Resp: for<'de> Deserialize<'de>,
     {
-        match crate::utils::to_json_raw_value(params) {
-            Err(err) => Box::pin(async move {
-                Err(TransportError::SerdeJson {
-                    err,
-                    text: Default::default(),
-                })
-            }),
-            Ok(params) => Box::pin(async move {
-                let resp = self.request_raw(method, &params).await?;
-
-                match resp {
-                    Ok(v) => Ok(Ok(crate::utils::from_json_val(v.get())?)),
-                    Err(e) => Ok(Err(e)),
-                }
-            }),
-        }
+        RpcCall::new(self.clone(), method, params, self.next_id())
     }
 }
 
