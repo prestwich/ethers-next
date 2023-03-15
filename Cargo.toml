@@ -2,6 +2,7 @@
 members = [
     "ethers-types",
     "ethers-pub-use",
+    "rlp",
     "rpc/ethers-transports",
     "rpc/ethers-provider",
     "rpc/types",
