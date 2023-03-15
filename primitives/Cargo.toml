@@ -1,5 +1,5 @@
 [package]
-name = "ethers-types"
+name = "ethers-primitives"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
@@ -21,10 +21,11 @@ fixed-hash = { version = "0.8", default-features = false, features = [
 derive_more = "0.99"
 
 # optional
+ethers-rlp = { version = "0.1.0", path = "../rlp", optional = true }
 serde = { version = "1.0", features = ["derive"], optional = true }
 
 # rlp support
-reth-rlp = { git = "https://github.com/paradigmxyz/reth", version = "0.1.2", optional = true }
+
 bytes = { version = "1", default-features = false, optional = true }
 
 # prop tests
@@ -45,7 +46,7 @@ ruint = { version = "1.7.0", features = [
 [features]
 default = ["std"]
 std = []
-rlp = ["dep:reth-rlp", "dep:bytes"]
+rlp = ["dep:ethers-rlp", "dep:bytes"]
 primitive-types = ["dep:primitive-types", "ruint/primitive-types"]
 arbitrary = [
     "ruint/arbitrary",

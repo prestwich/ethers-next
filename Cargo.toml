@@ -1,7 +1,7 @@
 [workspace]
 members = [
-    "ethers-types",
     "ethers-pub-use",
+    "primitives",
     "rlp",
     "rpc/ethers-transports",
     "rpc/ethers-provider",

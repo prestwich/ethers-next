@@ -1,6 +1,5 @@
 use ethers_pub_use::{
     hex,
-    reth_rlp::{RlpDecodable, RlpEncodable},
     serde::{Deserialize, Serialize},
     serde_json::Value,
     serde_with::{DeserializeFromStr, SerializeDisplay},
@@ -15,7 +14,7 @@ use std::{
 };
 use url::{Host, Url};
 
-use ethers_types::{B256, B512, U256};
+use ethers_primitives::{B256, B512, U256};
 
 // TODO
 type PeerId = B512;
@@ -32,8 +31,8 @@ type PeerId = B512;
     Hash,
     SerializeDisplay,
     DeserializeFromStr,
-    RlpEncodable,
-    RlpDecodable,
+    // RlpEncodable, // TODO
+    // RlpDecodable, // TODO
 )]
 pub struct NodeRecord {
     /// The Address of a node.

@@ -356,15 +356,15 @@ mod serialize {
 #[cfg(feature = "rlp")]
 mod rlp {
     use super::{B160, B256, B512};
-    use reth_rlp::{MaxEncodedLen, MaxEncodedLenAssoc};
+    use ethers_rlp::{MaxEncodedLen, MaxEncodedLenAssoc};
     macro_rules! fixed_hash_impl {
         ($t:ty) => {
-            impl reth_rlp::Decodable for $t {
-                fn decode(buf: &mut &[u8]) -> Result<Self, reth_rlp::DecodeError> {
-                    reth_rlp::Decodable::decode(buf).map(Self)
+            impl ethers_rlp::Decodable for $t {
+                fn decode(buf: &mut &[u8]) -> Result<Self, ethers_rlp::DecodeError> {
+                    ethers_rlp::Decodable::decode(buf).map(Self)
                 }
             }
-            impl reth_rlp::Encodable for $t {
+            impl ethers_rlp::Encodable for $t {
                 fn length(&self) -> usize {
                     self.0.length()
                 }
@@ -373,8 +373,8 @@ mod rlp {
                     self.0.encode(out)
                 }
             }
-            reth_rlp::impl_max_encoded_len!($t, {
-                reth_rlp::length_of_length(<$t>::len_bytes()) + <$t>::len_bytes()
+            ethers_rlp::impl_max_encoded_len!($t, {
+                ethers_rlp::length_of_length(<$t>::len_bytes()) + <$t>::len_bytes()
             });
         };
     }
