@@ -1,9 +1,12 @@
 [workspace]
 members = [
+    "ethers-types",
     "ethers-pub-use",
     "ethers-transports",
     "ethers-provider",
 ]
+
+resolver = "2"
 
 [patch.crates-io]
 # revm = { git = "https://github.com/bluealloy/revm", rev = "afc3066" }
