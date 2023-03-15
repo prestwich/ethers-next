@@ -9,5 +9,3 @@ pub use serde_json;
 pub use serde_with;
 pub use thiserror;
 pub use tracing;
-
-pub use reth_rlp;

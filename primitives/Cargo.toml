@@ -9,7 +9,7 @@ description = "fundamental ethereum types shared by revm, reth and ethers"
 
 [dependencies]
 # eth
-ruint = { version = "1.7", features = ["rlp"] }
+ruint = { version = "1.7", features = ["rlp", "serde"] }
 primitive-types = { version = "0.12", default-features = false, optional = true }
 
 # bits B256 B160 crate
