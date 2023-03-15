@@ -11,7 +11,7 @@
 
 mod bits;
 
-pub use bits::{B160, B256};
+pub use bits::{B160, B256, B512};
 
 /// Address type is first 20 bytes of hash of ethereum account
 pub type Address = B160;

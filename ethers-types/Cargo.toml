@@ -22,6 +22,12 @@ derive_more = "0.99"
 
 # optional
 serde = { version = "1.0", features = ["derive"], optional = true }
+
+# rlp support
+reth-rlp = { git = "https://github.com/paradigmxyz/reth", version = "0.1.2", optional = true }
+bytes = { version = "1", default-features = false, optional = true }
+
+# prop tests
 arbitrary = { version = "1.2", features = ["derive"], optional = true }
 proptest = { version = "1.1", optional = true }
 proptest-derive = { version = "0.3", optional = true }
@@ -40,6 +46,7 @@ ruint = { version = "1.7.0", features = [
 [features]
 default = ["std"]
 std = []
+rlp = ["dep:reth-rlp", "dep:bytes"]
 primitive-types = ["dep:primitive-types", "ruint/primitive-types"]
 arbitrary = [
     "ruint/arbitrary",

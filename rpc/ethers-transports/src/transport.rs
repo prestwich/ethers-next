@@ -43,7 +43,7 @@ pub trait PubSubConnection: Connection {
     fn install_listener(
         &self,
         id: [u8; 32],
-    ) -> Result<UnboundedReceiver<Cow<RawValue>>, TransportError>;
+    ) -> Result<UnboundedReceiver<Cow<'_, RawValue>>, TransportError>;
 }
 
 #[cfg(test)]

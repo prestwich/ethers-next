@@ -15,7 +15,7 @@ use crate::{
     Connection, TransportError,
 };
 
-pub enum CallState<B, T, Params> {
+pub(crate) enum CallState<B, T, Params> {
     Prepared {
         connection: B,
         method: &'static str,
@@ -29,9 +29,23 @@ pub enum CallState<B, T, Params> {
     Complete,
     Running,
 }
+impl<B, T, Params> std::fmt::Debug for CallState<B, T, Params> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Prepared { method, id, .. } => f
+                .debug_struct("Prepared")
+                .field("method", method)
+                .field("id", id)
+                .finish(),
+            Self::AwaitingResponse { .. } => f.debug_struct("AwaitingResponse").finish(),
+            Self::Complete => write!(f, "Complete"),
+            Self::Running => write!(f, "Running"),
+        }
+    }
+}
 
 impl<B, T, Params> CallState<B, T, Params> {
-    pub fn new(
+    pub(crate) fn new(
         connection: B,
         method: &'static str,
         params: Params,
@@ -114,6 +128,7 @@ where
     }
 }
 
+#[derive(Debug)]
 pub struct RpcCall<B, T, Params, Resp> {
     state: CallState<B, T, Params>,
     resp: PhantomData<fn() -> Resp>,

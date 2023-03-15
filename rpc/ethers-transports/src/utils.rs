@@ -8,7 +8,7 @@ use jsonrpsee_types::{ErrorResponse, Response};
 
 use crate::{common::JsonRpcResultOwned, TransportError};
 
-pub fn to_json_raw_value<S>(s: &S) -> Result<Box<RawValue>, TransportError>
+pub(crate) fn to_json_raw_value<S>(s: &S) -> Result<Box<RawValue>, TransportError>
 where
     S: Serialize,
 {
@@ -16,7 +16,7 @@ where
         .map_err(TransportError::ser_err)
 }
 
-pub fn from_json<T, S>(s: S) -> Result<T, TransportError>
+pub(crate) fn from_json<T, S>(s: S) -> Result<T, TransportError>
 where
     T: for<'de> Deserialize<'de>,
     S: AsRef<str>,
@@ -31,7 +31,7 @@ where
     }
 }
 
-pub fn deser_rpc_result(resp: &str) -> Result<JsonRpcResultOwned, TransportError> {
+pub(crate) fn deser_rpc_result(resp: &str) -> Result<JsonRpcResultOwned, TransportError> {
     if let Ok(err) = serde_json::from_str::<ErrorResponse<'_>>(resp) {
         return Ok(Err(err.error_object().to_owned().into_owned()));
     }

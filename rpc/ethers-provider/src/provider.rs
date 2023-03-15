@@ -137,7 +137,7 @@ where
     fn install_listener(
         &self,
         id: [u8; 32],
-    ) -> Result<mpsc::UnboundedReceiver<Cow<RawValue>>, TransportError> {
+    ) -> Result<mpsc::UnboundedReceiver<Cow<'_, RawValue>>, TransportError> {
         self.transport.install_listener(id)
     }
 }

@@ -7,17 +7,24 @@ use arbitrary::Arbitrary;
 use proptest_derive::Arbitrary as PropTestArbitrary;
 
 construct_fixed_hash! {
-    /// revm 256 bits type.
+    /// 256 bits fixed hash
     #[cfg_attr(any(test, feature = "arbitrary"), derive(Arbitrary, PropTestArbitrary))]
     #[derive(AsRef,Deref)]
     pub struct B256(32);
 }
 
 construct_fixed_hash! {
-    /// revm 160 bits type.
+    /// 160 bits fixed hash
     #[cfg_attr(any(test, feature = "arbitrary"), derive(Arbitrary, PropTestArbitrary))]
     #[derive(AsRef,Deref)]
     pub struct B160(20);
+}
+
+construct_fixed_hash! {
+    /// 512 bits fixed hash
+    #[cfg_attr(any(test, feature = "arbitrary"), derive(Arbitrary, PropTestArbitrary))]
+    #[derive(AsRef,Deref)]
+    pub struct B512(64);
 }
 
 impl From<u64> for B160 {
@@ -131,11 +138,33 @@ impl<'de> serde::Deserialize<'de> for B160 {
         Ok(B160(bytes))
     }
 }
+#[cfg(feature = "serde")]
+impl serde::Serialize for B512 {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut slice = [0u8; 2 + 2 * 64];
+        serialize::serialize_raw(&mut slice, &self.0, serializer)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for B512 {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let mut bytes = [0u8; 64];
+        serialize::deserialize_check_len(deserializer, serialize::ExpectedLen::Exact(&mut bytes))?;
+        Ok(B512(bytes))
+    }
+}
 
 // code optained from: https://docs.rs/impl-serde/0.4.0/impl_serde/
 #[cfg(feature = "serde")]
 mod serialize {
-
+    extern crate alloc;
     use alloc::string::String;
     use core::{fmt, result::Result};
     use serde::{de, Deserializer, Serializer};
@@ -322,6 +351,36 @@ mod serialize {
 
         deserializer.deserialize_str(Visitor { len })
     }
+}
+
+#[cfg(feature = "rlp")]
+mod rlp {
+    use super::{B160, B256, B512};
+    use reth_rlp::{MaxEncodedLen, MaxEncodedLenAssoc};
+    macro_rules! fixed_hash_impl {
+        ($t:ty) => {
+            impl reth_rlp::Decodable for $t {
+                fn decode(buf: &mut &[u8]) -> Result<Self, reth_rlp::DecodeError> {
+                    reth_rlp::Decodable::decode(buf).map(Self)
+                }
+            }
+            impl reth_rlp::Encodable for $t {
+                fn length(&self) -> usize {
+                    self.0.length()
+                }
+
+                fn encode(&self, out: &mut dyn bytes::BufMut) {
+                    self.0.encode(out)
+                }
+            }
+            reth_rlp::impl_max_encoded_len!($t, {
+                reth_rlp::length_of_length(<$t>::len_bytes()) + <$t>::len_bytes()
+            });
+        };
+    }
+    fixed_hash_impl!(B160);
+    fixed_hash_impl!(B256);
+    fixed_hash_impl!(B512);
 }
 
 #[cfg(test)]
