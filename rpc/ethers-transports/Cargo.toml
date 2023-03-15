@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 
 base64 = "0.21.0"
-ethers-pub-use = { version = "0.1.0", path = "../ethers-pub-use" }
+ethers-pub-use = { version = "0.1.0", path = "../../ethers-pub-use" }
 jsonrpsee-types = "0.16.2"
 reqwest = { version = "0.11.14", features = ["serde_json", "json"] }
 

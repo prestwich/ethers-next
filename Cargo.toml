@@ -2,10 +2,12 @@
 members = [
     "ethers-types",
     "ethers-pub-use",
-    "ethers-transports",
-    "ethers-provider",
+    "rpc/ethers-transports",
+    "rpc/ethers-provider",
+    "rpc/types",
 ]
 
+# required to disable specific features on the wasm target
 resolver = "2"
 
 [patch.crates-io]
