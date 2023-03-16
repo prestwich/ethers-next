@@ -2,7 +2,7 @@
 members = [
     "ethers-pub-use",
     "primitives",
-    "abi",
+    "abi/enc",
     "rlp",
     "rpc/ethers-transports",
     "rpc/ethers-provider",
