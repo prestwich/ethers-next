@@ -1,5 +1,5 @@
 [package]
-name = "abi"
+name = "ethers-abi"
 version = "0.1.0"
 edition = "2021"
 
@@ -10,10 +10,9 @@ ethers-primitives = { version = "0.1.0", path = "../primitives" }
 hex = "0.4.3"
 thiserror = {version = "1.0.39", optional = true}
 
+[dev-dependencies]
+hex-literal = "0.3.4"
 
 [features]
 default = ["std"]
 std = ["hex/std", "thiserror"]
-
-[dev-dependencies]
-hex-literal = "0.3.4"
