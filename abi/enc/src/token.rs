@@ -18,7 +18,6 @@ use crate::no_std_prelude::*;
 use crate::{ParamType, Word};
 
 /// Ethereum ABI params.
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, PartialEq, Clone)]
 pub enum Token {
     /// Single Word

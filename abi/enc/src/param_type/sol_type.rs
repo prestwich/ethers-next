@@ -8,12 +8,11 @@ use crate::{Error::InvalidData, Token, Word};
 
 pub trait SolType {
     type RustType;
+    fn sol_type_name() -> std::string::String;
     fn is_dynamic() -> bool;
     fn type_check(token: &Token) -> bool;
     fn detokenize(token: &Token) -> crate::Result<Self::RustType>;
-    fn tokenize(_rust: Self::RustType) -> Token {
-        todo!()
-    }
+    fn tokenize(_rust: Self::RustType) -> Token;
 }
 
 pub struct Address;
@@ -23,6 +22,10 @@ impl SolType for Address {
 
     fn is_dynamic() -> bool {
         false
+    }
+
+    fn sol_type_name() -> std::string::String {
+        "address".to_string()
     }
 
     fn type_check(token: &Token) -> bool {
@@ -52,6 +55,11 @@ impl SolType for Bytes {
     fn is_dynamic() -> bool {
         true
     }
+
+    fn sol_type_name() -> std::string::String {
+        "bytes".to_string()
+    }
+
     fn type_check(token: &Token) -> bool {
         matches!(token, Token::PackedSeq(_))
     }
@@ -75,6 +83,10 @@ macro_rules! impl_int_sol_type {
 
             fn is_dynamic() -> bool {
                 false
+            }
+
+            fn sol_type_name() -> std::string::String {
+                format!("int{}", $bits)
             }
 
             fn type_check(token: &Token) -> bool {
@@ -106,7 +118,7 @@ macro_rules! impl_int_sol_type {
     };
 }
 
-struct Int<const BITS: usize>;
+pub struct Int<const BITS: usize>;
 impl_int_sol_type!(i8, 8);
 impl_int_sol_type!(i16, 16);
 impl_int_sol_type!(i32, 24);
@@ -124,6 +136,10 @@ macro_rules! impl_uint_sol_type {
 
             fn is_dynamic() -> bool {
                 false
+            }
+
+            fn sol_type_name() -> std::string::String {
+                format!("uint{}", $bits)
             }
 
             fn type_check(token: &Token) -> bool {
@@ -157,6 +173,10 @@ macro_rules! impl_uint_sol_type {
                 false
             }
 
+            fn sol_type_name() -> std::string::String {
+                format!("uint{}", $bits)
+            }
+
             fn type_check(token: &Token) -> bool {
                 matches!(token, Token::Word(_))
             }
@@ -181,7 +201,7 @@ macro_rules! impl_uint_sol_type {
     }
 }
 
-struct Uint<const BITS: usize>;
+pub struct Uint<const BITS: usize>;
 impl_uint_sol_type!(u8, 8);
 impl_uint_sol_type!(u16, 16);
 impl_uint_sol_type!(u32, 24);
@@ -195,6 +215,34 @@ impl_uint_sol_type!(
     232, 240, 248, 256,
 );
 
+pub struct Bool;
+impl SolType for Bool {
+    type RustType = bool;
+
+    fn is_dynamic() -> bool {
+        false
+    }
+
+    fn sol_type_name() -> std::string::String {
+        "bool".into()
+    }
+
+    fn type_check(token: &Token) -> bool {
+        matches!(token, Token::Word(_))
+    }
+
+    fn detokenize(token: &Token) -> crate::Result<Self::RustType> {
+        match token {
+            Token::Word(word) => Ok(word[31] < 2),
+            _ => Err(InvalidData),
+        }
+    }
+
+    fn tokenize(_rust: Self::RustType) -> Token {
+        todo!()
+    }
+}
+
 pub struct Array<T: SolType>(PhantomData<T>);
 
 impl<T> SolType for Array<T>
@@ -205,6 +253,10 @@ where
 
     fn is_dynamic() -> bool {
         true
+    }
+
+    fn sol_type_name() -> std::string::String {
+        format!("{}[]", T::sol_type_name())
     }
 
     fn type_check(token: &Token) -> bool {
@@ -233,6 +285,10 @@ impl SolType for String {
         true
     }
 
+    fn sol_type_name() -> std::string::String {
+        "string".to_owned()
+    }
+
     fn type_check(token: &Token) -> bool {
         Bytes::type_check(token)
     }
@@ -254,6 +310,10 @@ macro_rules! impl_fixed_bytes_sol_type {
 
             fn is_dynamic() -> bool {
                 false
+            }
+
+            fn sol_type_name() -> std::string::String {
+                format!("bytes{}", $bytes)
             }
 
             fn type_check(token: &Token) -> bool {
@@ -300,9 +360,15 @@ where
         T::is_dynamic()
     }
 
+    fn sol_type_name() -> std::string::String {
+        format!("{}[{}]", T::sol_type_name(), N)
+    }
+
     fn type_check(token: &Token) -> bool {
         match token {
-            Token::FixedSeq(tokens) => tokens.len() == N,
+            Token::FixedSeq(tokens) => {
+                tokens.len() == N && tokens.iter().all(|token| T::type_check(token))
+            }
             _ => false,
         }
     }
@@ -342,9 +408,29 @@ macro_rules! impl_tuple_sol_type {
                 false
             }
 
+            fn sol_type_name() -> std::string::String {
+                let mut types = Vec::with_capacity($num);
+                $(
+                    types.push($ty::sol_type_name());
+                )+
+
+                format!("({})", types.join(","))
+
+            }
+
             fn type_check(token: &Token) -> bool {
                 match token {
-                    Token::FixedSeq(v) => v.len() == $num,
+                    Token::FixedSeq(tokens) => {
+                        if tokens.len() != $num {
+                            return false
+                        }
+                        $(
+                            if !$ty::type_check(&tokens[$no]) {
+                                return false
+                            }
+                        )+
+                        true
+                    },
                     _ => false
                 }
             }
