@@ -176,7 +176,7 @@ mod tests {
 
     #[cfg(not(feature = "std"))]
     use crate::no_std_prelude::*;
-    use crate::{encode, util::pad_u32, Token, Tokenize, Word};
+    use crate::{encode, sol_type, util::pad_u32, SolType, Token, Word};
 
     #[test]
     fn encode_address() {
@@ -552,14 +552,14 @@ mod tests {
 
     #[test]
     fn encode_bool() {
-        let encoded = encode(&[true.to_token()]);
+        let encoded = encode(&[sol_type::Bool::tokenize(true)]);
         let expected = hex!("0000000000000000000000000000000000000000000000000000000000000001");
         assert_eq!(encoded, expected);
     }
 
     #[test]
     fn encode_bool2() {
-        let encoded = encode(&[false.to_token()]);
+        let encoded = encode(&[sol_type::Bool::tokenize(false)]);
         let expected = hex!("0000000000000000000000000000000000000000000000000000000000000000");
         assert_eq!(encoded, expected);
     }
@@ -785,7 +785,7 @@ mod tests {
         let string4 = Token::PackedSeq(b"day".to_vec());
         let string5 = Token::PackedSeq(b"weee".to_vec());
         let string6 = Token::PackedSeq(b"funtests".to_vec());
-        let bool = true.to_token();
+        let bool = sol_type::Bool::tokenize(true);
         let deep_tuple = Token::FixedSeq(vec![string5, string6]);
         let inner_tuple = Token::FixedSeq(vec![string3, string4, deep_tuple]);
         let outer_tuple = Token::FixedSeq(vec![string1, bool, string2, inner_tuple]);
@@ -823,13 +823,13 @@ mod tests {
     #[test]
     fn encode_params_containing_dynamic_tuple() {
         let address1 = Token::Word(B160([0x22u8; 20]).into());
-        let bool1 = true.to_token();
+        let bool1 = sol_type::Bool::tokenize(true);
         let string1 = Token::PackedSeq(b"spaceship".to_vec());
         let string2 = Token::PackedSeq(b"cyborg".to_vec());
         let tuple = Token::FixedSeq(vec![bool1, string1, string2]);
         let address2 = Token::Word(B160([0x33u8; 20]).into());
         let address3 = Token::Word(B160([0x44u8; 20]).into());
-        let bool2 = false.to_token();
+        let bool2 = sol_type::Bool::tokenize(false);
         let encoded = encode(&[address1, tuple, address2, address3, bool2]);
         let expected = hex!(
             "
@@ -855,8 +855,8 @@ mod tests {
     fn encode_params_containing_static_tuple() {
         let address1 = Token::Word(B160([0x11u8; 20]).into());
         let address2 = Token::Word(B160([0x22u8; 20]).into());
-        let bool1 = true.to_token();
-        let bool2 = false.to_token();
+        let bool1 = sol_type::Bool::tokenize(true);
+        let bool2 = sol_type::Bool::tokenize(false);
         let tuple = Token::FixedSeq(vec![address2, bool1, bool2]);
         let address3 = Token::Word(B160([0x33u8; 20]).into());
         let address4 = Token::Word(B160([0x44u8; 20]).into());
@@ -880,7 +880,10 @@ mod tests {
         let token = {
             use crate::Token::*;
             FixedSeq(vec![
-                FixedSeq(vec![FixedSeq(vec![false.to_token(), Word(pad_u32(0x777))])]),
+                FixedSeq(vec![FixedSeq(vec![
+                    sol_type::Bool::tokenize(false),
+                    Word(pad_u32(0x777)),
+                ])]),
                 DynSeq(vec![Word(pad_u32(0x42)), Word(pad_u32(0x1337))]),
             ])
         };

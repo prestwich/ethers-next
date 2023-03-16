@@ -34,14 +34,14 @@ pub use encoder::encode;
 mod token;
 pub use token::Token;
 
-mod tokenize;
-pub use tokenize::Tokenize;
-
 mod errors;
 pub use errors::{Error, Result};
 
 mod param_type;
 pub use param_type::ParamType;
+
+// re-export the module
+pub use param_type::sol_type::{self, SolType};
 
 pub mod util;
 

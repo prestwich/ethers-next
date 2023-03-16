@@ -2,17 +2,40 @@ use core::marker::PhantomData;
 
 use ethers_primitives::{B160, B256, U256};
 
-use crate::{Error::InvalidData, Token, Word};
+use std::string::String as RustString;
 
-// TODO: recursive typecheck in seqs!!
+use crate::{decoder::*, Error::InvalidData, Token, Word};
 
 pub trait SolType {
     type RustType;
-    fn sol_type_name() -> std::string::String;
+    fn sol_type_name() -> RustString;
     fn is_dynamic() -> bool;
     fn type_check(token: &Token) -> bool;
     fn detokenize(token: &Token) -> crate::Result<Self::RustType>;
     fn tokenize(rust: Self::RustType) -> Token;
+
+    #[doc(hidden)]
+    fn read_token(data: &[u8], offset: usize) -> crate::Result<crate::decoder::DecodeResult>;
+
+    fn encode(rust: Self::RustType) -> Vec<u8> {
+        let token = Self::tokenize(rust);
+        crate::encode(&[token])
+    }
+
+    fn hex_encode(rust: Self::RustType) -> RustString {
+        format!("0x{}", hex::encode(Self::encode(rust)))
+    }
+
+    fn decode(data: &[u8]) -> crate::Result<Self::RustType> {
+        Self::detokenize(&Self::read_token(data, 0)?.token)
+    }
+
+    fn hex_decode(data: &str) -> crate::Result<Self::RustType> {
+        let payload = data.strip_prefix("0x").unwrap_or(data);
+        hex::decode(payload)
+            .map_err(|_| InvalidData)
+            .and_then(|buf| Self::decode(&buf))
+    }
 }
 
 pub struct Address;
@@ -24,7 +47,7 @@ impl SolType for Address {
         false
     }
 
-    fn sol_type_name() -> std::string::String {
+    fn sol_type_name() -> RustString {
         "address".to_string()
     }
 
@@ -45,6 +68,18 @@ impl SolType for Address {
         word[12..].copy_from_slice(&rust[..]);
         Token::Word(word)
     }
+
+    fn read_token(data: &[u8], offset: usize) -> crate::Result<crate::decoder::DecodeResult> {
+        let slice = peek_32_bytes(data, offset)?;
+        let result = DecodeResult {
+            token: Token::Word(slice),
+            new_offset: offset + 32,
+        };
+        if !Self::type_check(&result.token) {
+            return Err(InvalidData);
+        }
+        Ok(result)
+    }
 }
 
 pub struct Bytes;
@@ -56,7 +91,7 @@ impl SolType for Bytes {
         true
     }
 
-    fn sol_type_name() -> std::string::String {
+    fn sol_type_name() -> RustString {
         "bytes".to_string()
     }
 
@@ -74,6 +109,17 @@ impl SolType for Bytes {
     fn tokenize(rust: Self::RustType) -> Token {
         Token::PackedSeq(rust)
     }
+
+    fn read_token(data: &[u8], offset: usize) -> crate::Result<crate::decoder::DecodeResult> {
+        let dynamic_offset = as_usize(&peek_32_bytes(data, offset)?)?;
+        let len = as_usize(&peek_32_bytes(data, dynamic_offset)?)?;
+        let bytes = take_bytes(data, dynamic_offset + 32, len, true)?;
+        let result = DecodeResult {
+            token: Token::PackedSeq(bytes),
+            new_offset: offset + 32,
+        };
+        Ok(result)
+    }
 }
 
 macro_rules! impl_int_sol_type {
@@ -85,7 +131,7 @@ macro_rules! impl_int_sol_type {
                 false
             }
 
-            fn sol_type_name() -> std::string::String {
+            fn sol_type_name() -> RustString {
                 format!("int{}", $bits)
             }
 
@@ -114,6 +160,21 @@ macro_rules! impl_int_sol_type {
                 word[32 - bytes..].copy_from_slice(&slice);
                 Token::Word(word)
             }
+
+            fn read_token(
+                data: &[u8],
+                offset: usize,
+            ) -> crate::Result<crate::decoder::DecodeResult> {
+                let slice = peek_32_bytes(data, offset)?;
+                let result = DecodeResult {
+                    token: Token::Word(slice),
+                    new_offset: offset + 32,
+                };
+                if !Self::type_check(&result.token) {
+                    return Err(InvalidData);
+                }
+                Ok(result)
+            }
         }
     };
 }
@@ -138,7 +199,7 @@ macro_rules! impl_uint_sol_type {
                 false
             }
 
-            fn sol_type_name() -> std::string::String {
+            fn sol_type_name() -> RustString {
                 format!("uint{}", $bits)
             }
 
@@ -162,6 +223,21 @@ macro_rules! impl_uint_sol_type {
                 word[32 - bytes..].copy_from_slice(&slice);
                 Token::Word(word)
             }
+
+            fn read_token(
+                data: &[u8],
+                offset: usize,
+            ) -> crate::Result<crate::decoder::DecodeResult> {
+                let slice = peek_32_bytes(data, offset)?;
+                let result = DecodeResult {
+                    token: Token::Word(slice),
+                    new_offset: offset + 32,
+                };
+                if !Self::type_check(&result.token) {
+                    return Err(InvalidData);
+                }
+                Ok(result)
+            }
         }
     };
 
@@ -173,7 +249,7 @@ macro_rules! impl_uint_sol_type {
                 false
             }
 
-            fn sol_type_name() -> std::string::String {
+            fn sol_type_name() -> RustString {
                 format!("uint{}", $bits)
             }
 
@@ -190,6 +266,21 @@ macro_rules! impl_uint_sol_type {
 
             fn tokenize(rust: Self::RustType) -> Token {
                 Token::Word(B256(rust.to_be_bytes::<32>()))
+            }
+
+            fn read_token(
+                data: &[u8],
+                offset: usize,
+            ) -> crate::Result<crate::decoder::DecodeResult> {
+                let slice = peek_32_bytes(data, offset)?;
+                let result = DecodeResult {
+                    token: Token::Word(slice),
+                    new_offset: offset + 32,
+                };
+                if !Self::type_check(&result.token) {
+                    return Err(InvalidData);
+                }
+                Ok(result)
             }
         }
     };
@@ -223,12 +314,15 @@ impl SolType for Bool {
         false
     }
 
-    fn sol_type_name() -> std::string::String {
+    fn sol_type_name() -> RustString {
         "bool".into()
     }
 
     fn type_check(token: &Token) -> bool {
-        matches!(token, Token::Word(_))
+        match token {
+            Token::Word(word) => check_bool(*word).is_ok(),
+            _ => false,
+        }
     }
 
     fn detokenize(token: &Token) -> crate::Result<Self::RustType> {
@@ -238,8 +332,22 @@ impl SolType for Bool {
         }
     }
 
-    fn tokenize(_rust: Self::RustType) -> Token {
-        todo!()
+    fn tokenize(rust: Self::RustType) -> Token {
+        let mut word = Word::default();
+        word[31..32].copy_from_slice(&[rust as u8]);
+        Token::Word(word)
+    }
+
+    fn read_token(data: &[u8], offset: usize) -> crate::Result<crate::decoder::DecodeResult> {
+        let slice = peek_32_bytes(data, offset)?;
+        let result = DecodeResult {
+            token: Token::Word(slice),
+            new_offset: offset + 32,
+        };
+        if !Self::type_check(&result.token) {
+            return Err(InvalidData);
+        }
+        Ok(result)
     }
 }
 
@@ -255,7 +363,7 @@ where
         true
     }
 
-    fn sol_type_name() -> std::string::String {
+    fn sol_type_name() -> RustString {
         format!("{}[]", T::sol_type_name())
     }
 
@@ -274,31 +382,69 @@ where
     fn tokenize(rust: Self::RustType) -> Token {
         Token::DynSeq(rust.into_iter().map(|r| T::tokenize(r)).collect())
     }
+
+    fn read_token(data: &[u8], offset: usize) -> crate::Result<crate::decoder::DecodeResult> {
+        let len_offset = as_usize(&peek_32_bytes(data, offset)?)?;
+        let len = as_usize(&peek_32_bytes(data, len_offset)?)?;
+
+        let tail_offset = len_offset + 32;
+        let tail = &data[tail_offset..];
+
+        let mut tokens = vec![];
+        let mut new_offset = 0;
+
+        for _ in 0..len {
+            let res = T::read_token(tail, new_offset)?;
+            new_offset = res.new_offset;
+            tokens.push(res.token);
+        }
+
+        let result = DecodeResult {
+            token: Token::DynSeq(tokens),
+            new_offset: offset + 32,
+        };
+
+        Ok(result)
+    }
 }
 
 pub struct String;
 
 impl SolType for String {
-    type RustType = std::string::String;
+    type RustType = RustString;
 
     fn is_dynamic() -> bool {
         true
     }
 
-    fn sol_type_name() -> std::string::String {
+    fn sol_type_name() -> RustString {
         "string".to_owned()
     }
 
     fn type_check(token: &Token) -> bool {
-        Bytes::type_check(token)
+        match token {
+            Token::PackedSeq(bytes) => std::str::from_utf8(bytes).is_ok(),
+            _ => false,
+        }
     }
 
     fn detokenize(token: &Token) -> crate::Result<Self::RustType> {
-        std::string::String::from_utf8(Bytes::detokenize(token)?).map_err(|_| InvalidData)
+        RustString::from_utf8(Bytes::detokenize(token)?).map_err(|_| InvalidData)
     }
 
     fn tokenize(rust: Self::RustType) -> Token {
         Token::PackedSeq(rust.into_bytes())
+    }
+
+    fn read_token(data: &[u8], offset: usize) -> crate::Result<crate::decoder::DecodeResult> {
+        let dynamic_offset = as_usize(&peek_32_bytes(data, offset)?)?;
+        let len = as_usize(&peek_32_bytes(data, dynamic_offset)?)?;
+        let bytes = take_bytes(data, dynamic_offset + 32, len, true)?;
+        let result = DecodeResult {
+            token: Token::PackedSeq(bytes),
+            new_offset: offset + 32,
+        };
+        Ok(result)
     }
 }
 
@@ -312,7 +458,7 @@ macro_rules! impl_fixed_bytes_sol_type {
                 false
             }
 
-            fn sol_type_name() -> std::string::String {
+            fn sol_type_name() -> RustString {
                 format!("bytes{}", $bytes)
             }
 
@@ -333,6 +479,17 @@ macro_rules! impl_fixed_bytes_sol_type {
                 let mut word = Word::default();
                 word[..$bytes].copy_from_slice(&rust[..]);
                 Token::Word(word)
+            }
+
+            fn read_token(data: &[u8], offset: usize) -> crate::Result<crate::decoder::DecodeResult> {
+                let word = peek_32_bytes(data, offset)?;
+                check_fixed_bytes(word, $bytes)?;
+
+                let result = DecodeResult {
+                    token: Token::Word(word),
+                    new_offset: offset + 32,
+                };
+                Ok(result)
             }
         }
     };
@@ -360,7 +517,7 @@ where
         T::is_dynamic()
     }
 
-    fn sol_type_name() -> std::string::String {
+    fn sol_type_name() -> RustString {
         format!("{}[{}]", T::sol_type_name(), N)
     }
 
@@ -387,6 +544,35 @@ where
     fn tokenize(rust: Self::RustType) -> Token {
         Token::FixedSeq(rust.into_iter().map(|r| T::tokenize(r)).collect())
     }
+
+    fn read_token(data: &[u8], offset: usize) -> crate::Result<crate::decoder::DecodeResult> {
+        let is_dynamic = Self::is_dynamic();
+
+        let (tail, mut new_offset) = if is_dynamic {
+            let offset = as_usize(&peek_32_bytes(data, offset)?)?;
+            if offset > data.len() {
+                return Err(InvalidData);
+            }
+            (&data[offset..], 0)
+        } else {
+            (data, offset)
+        };
+
+        let mut tokens = Vec::with_capacity(N);
+
+        for _ in 0..N {
+            let res = T::read_token(tail, new_offset)?;
+            new_offset = res.new_offset;
+            tokens.push(res.token);
+        }
+
+        let result = DecodeResult {
+            token: Token::FixedSeq(tokens),
+            new_offset: if is_dynamic { offset + 32 } else { new_offset },
+        };
+
+        Ok(result)
+    }
 }
 
 macro_rules! impl_tuple_sol_type {
@@ -408,7 +594,7 @@ macro_rules! impl_tuple_sol_type {
                 false
             }
 
-            fn sol_type_name() -> std::string::String {
+            fn sol_type_name() -> RustString {
                 let mut types = Vec::with_capacity($num);
                 $(
                     types.push($ty::sol_type_name());
@@ -449,13 +635,46 @@ macro_rules! impl_tuple_sol_type {
             }
 
             fn tokenize(rust: Self::RustType) -> Token {
-                let mut tokens = Vec::with_capacity($num);
-                $(
-                    tokens[$no] = $ty::tokenize(rust.$no);
-                )+
+                let tokens = vec![
+                    $(
+                        $ty::tokenize(rust.$no),
+                    )+
+                ];
                 Token::FixedSeq(tokens)
             }
 
+            fn read_token(data: &[u8], offset: usize) -> crate::Result<crate::decoder::DecodeResult> {
+                let is_dynamic = Self::is_dynamic();
+
+                // The first element in a dynamic Tuple is an offset to the Tuple's data
+                // For a static Tuple the data begins right away
+                let (tail, mut new_offset) = if is_dynamic {
+                    let offset = as_usize(&peek_32_bytes(data, offset)?)?;
+                    if offset > data.len() {
+                        return Err(InvalidData);
+                    }
+                    (&data[offset..], 0)
+                } else {
+                    (data, offset)
+                };
+
+                let mut tokens = Vec::with_capacity($num);
+                $(
+                    let res = $ty::read_token(tail, new_offset)?;
+                    new_offset = res.new_offset;
+                    tokens.push(res.token);
+                )+
+
+                // The returned new_offset depends on whether the Tuple is dynamic
+                // dynamic Tuple -> follows the prefixed Tuple data offset element
+                // static Tuple  -> follows the last data element
+                let result = DecodeResult {
+                    token: Token::FixedSeq(tokens),
+                    new_offset: if is_dynamic { offset + 32 } else { new_offset },
+                };
+
+                Ok(result)
+            }
         }
     };
 }
@@ -486,7 +705,7 @@ pub struct Function;
 impl SolType for Function {
     type RustType = (B160, [u8; 4]);
 
-    fn sol_type_name() -> std::string::String {
+    fn sol_type_name() -> RustString {
         "function".to_string()
     }
 
@@ -519,5 +738,16 @@ impl SolType for Function {
         word[..20].copy_from_slice(&rust.0[..]);
         word[20..24].copy_from_slice(&rust.1[..]);
         Token::Word(word)
+    }
+
+    fn read_token(data: &[u8], offset: usize) -> crate::Result<crate::decoder::DecodeResult> {
+        let word = peek_32_bytes(data, offset)?;
+        check_fixed_bytes(word, 24)?;
+
+        let result = DecodeResult {
+            token: Token::Word(word),
+            new_offset: offset + 32,
+        };
+        Ok(result)
     }
 }
