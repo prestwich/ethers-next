@@ -480,3 +480,41 @@ impl_tuple_sol_type!(18, A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10,
 impl_tuple_sol_type!(19, A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M:12, N:13, O:14, P:15, Q:16, R:17, S:18,);
 impl_tuple_sol_type!(20, A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M:12, N:13, O:14, P:15, Q:16, R:17, S:18, T:19,);
 impl_tuple_sol_type!(21, A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M:12, N:13, O:14, P:15, Q:16, R:17, S:18, T:19, U:20,);
+
+pub struct Function;
+
+impl SolType for Function {
+    type RustType = (B160, [u8; 4]);
+
+    fn sol_type_name() -> std::string::String {
+        "function".to_string()
+    }
+
+    fn is_dynamic() -> bool {
+        false
+    }
+
+    fn type_check(token: &Token) -> bool {
+        match token {
+            Token::Word(word) => crate::decoder::check_fixed_bytes(*word, 24).is_ok(),
+            _ => false,
+        }
+    }
+
+    fn detokenize(token: &Token) -> crate::Result<Self::RustType> {
+        if !Self::type_check(token) {
+            return Err(InvalidData);
+        }
+        let t = token.as_word_array().unwrap();
+
+        let mut address = [0u8; 20];
+        let mut selector = [0u8; 4];
+        address.copy_from_slice(&t[..20]);
+        selector.copy_from_slice(&t[20..24]);
+        Ok((B160(address), selector))
+    }
+
+    fn tokenize(_rust: Self::RustType) -> Token {
+        todo!()
+    }
+}

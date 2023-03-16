@@ -98,7 +98,7 @@ fn round_up_nearest_multiple(value: usize, padding: usize) -> usize {
     (value + padding - 1) / padding * padding
 }
 
-fn check_fixed_bytes(word: Word, len: usize) -> Result<(), Error> {
+pub(crate) fn check_fixed_bytes(word: Word, len: usize) -> Result<(), Error> {
     if word == Word::default() {
         return Ok(());
     }
