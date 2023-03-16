@@ -31,9 +31,9 @@ fn as_usize(slice: &Word) -> Result<usize, Error> {
     Ok(result)
 }
 
-fn as_bool(slice: &Word) -> Result<bool, Error> {
+fn check_bool(slice: Word) -> Result<(), Error> {
     check_zeroes(&slice[..31])?;
-    Ok(slice[31] == 1)
+    Ok(())
 }
 
 fn decode_impl(
@@ -98,6 +98,19 @@ fn round_up_nearest_multiple(value: usize, padding: usize) -> usize {
     (value + padding - 1) / padding * padding
 }
 
+fn check_fixed_bytes(word: Word, len: usize) -> Result<(), Error> {
+    if word == Word::default() {
+        return Ok(());
+    }
+    match len {
+        0 => Err(Error::InvalidData),
+        1..=31 => check_zeroes(&word[len..]),
+        32 => Ok(()),
+        33.. => Err(Error::InvalidData),
+        _ => unreachable!(),
+    }
+}
+
 fn take_bytes(data: &[u8], offset: usize, len: usize, validate: bool) -> Result<Vec<u8>, Error> {
     if validate {
         let padded_len = round_up_nearest_multiple(len, 32);
@@ -131,10 +144,8 @@ fn decode_param(
             if validate {
                 check_zeroes(&slice[..12])?;
             }
-            let mut address = [0u8; 20];
-            address.copy_from_slice(&slice[12..]);
             let result = DecodeResult {
-                token: Token::Address(address.into()),
+                token: Token::Word(slice),
                 new_offset: offset + 32,
             };
             Ok(result)
@@ -142,7 +153,7 @@ fn decode_param(
         ParamType::Int(_) => {
             let slice = peek_32_bytes(data, offset)?;
             let result = DecodeResult {
-                token: Token::Int(slice),
+                token: Token::Word(slice),
                 new_offset: offset + 32,
             };
             Ok(result)
@@ -150,15 +161,16 @@ fn decode_param(
         ParamType::Uint(_) => {
             let slice = peek_32_bytes(data, offset)?;
             let result = DecodeResult {
-                token: Token::Uint(slice),
+                token: Token::Word(slice),
                 new_offset: offset + 32,
             };
             Ok(result)
         }
         ParamType::Bool => {
-            let b = as_bool(&peek_32_bytes(data, offset)?)?;
+            let word = peek_32_bytes(data, offset)?;
+            check_bool(word)?;
             let result = DecodeResult {
-                token: Token::Bool(b),
+                token: Token::Word(word),
                 new_offset: offset + 32,
             };
             Ok(result)
@@ -166,9 +178,11 @@ fn decode_param(
         ParamType::FixedBytes(len) => {
             // FixedBytes is anything from bytes1 to bytes32. These values
             // are padded with trailing zeros to fill 32 bytes.
-            let bytes = take_bytes(data, offset, len, validate)?;
+            let word = peek_32_bytes(data, offset)?;
+            check_fixed_bytes(word, len)?;
+
             let result = DecodeResult {
-                token: Token::FixedBytes(bytes),
+                token: Token::Word(word),
                 new_offset: offset + 32,
             };
             Ok(result)
@@ -178,7 +192,7 @@ fn decode_param(
             let len = as_usize(&peek_32_bytes(data, dynamic_offset)?)?;
             let bytes = take_bytes(data, dynamic_offset + 32, len, validate)?;
             let result = DecodeResult {
-                token: Token::Bytes(bytes),
+                token: Token::PackedSeq(bytes),
                 new_offset: offset + 32,
             };
             Ok(result)
@@ -192,7 +206,7 @@ fn decode_param(
                 // prevent invalid strings written into contracts by either users or
                 // Solidity bugs from causing graph-node to fail decoding event
                 // data.
-                token: Token::String(String::from_utf8_lossy(&bytes).into()),
+                token: Token::PackedSeq(bytes),
                 new_offset: offset + 32,
             };
             Ok(result)
@@ -214,7 +228,7 @@ fn decode_param(
             }
 
             let result = DecodeResult {
-                token: Token::Array(tokens),
+                token: Token::DynSeq(tokens),
                 new_offset: offset + 32,
             };
 
@@ -242,7 +256,7 @@ fn decode_param(
             }
 
             let result = DecodeResult {
-                token: Token::FixedArray(tokens),
+                token: Token::FixedSeq(tokens),
                 new_offset: if is_dynamic { offset + 32 } else { new_offset },
             };
 
@@ -275,7 +289,7 @@ fn decode_param(
             // dynamic Tuple -> follows the prefixed Tuple data offset element
             // static Tuple  -> follows the last data element
             let result = DecodeResult {
-                token: Token::Tuple(tokens),
+                token: Token::FixedSeq(tokens),
                 new_offset: if is_dynamic { offset + 32 } else { new_offset },
             };
 
@@ -286,11 +300,12 @@ fn decode_param(
 
 #[cfg(test)]
 mod tests {
+    use ethers_primitives::{B160, B256};
     use hex_literal::hex;
 
     #[cfg(not(feature = "std"))]
     use crate::no_std_prelude::*;
-    use crate::{decode, decode_validate, util::pad_u32, ParamType, Token};
+    use crate::{decode, decode_validate, util::pad_u32, ParamType, Token, Tokenize};
 
     #[test]
     fn decode_from_empty_byte_slice() {
@@ -307,8 +322,8 @@ mod tests {
         assert!(decode(&[ParamType::FixedBytes(1)], &[]).is_err());
         assert!(decode(&[ParamType::FixedArray(Box::new(ParamType::Bool), 1)], &[]).is_err());
 
+        assert!(decode(&[ParamType::FixedBytes(0)], &[]).is_err());
         // these are the only ones that can be decoded from empty byte slice
-        assert!(decode(&[ParamType::FixedBytes(0)], &[]).is_ok());
         assert!(decode(&[ParamType::FixedArray(Box::new(ParamType::Bool), 0)], &[]).is_ok());
     }
 
@@ -321,10 +336,10 @@ mod tests {
 			1111111111111111111111111111111111111111111111111111111111111111
 		"
         );
-        let address1 = Token::Address([0x11u8; 20].into());
-        let address2 = Token::Address([0x22u8; 20].into());
-        let uint = Token::Uint([0x11u8; 32].into());
-        let tuple = Token::Tuple(vec![address1, address2, uint]);
+        let address1 = B160([0x11u8; 20]).to_token();
+        let address2 = B160([0x22u8; 20]).to_token();
+        let uint = Token::Word([0x11u8; 32].into());
+        let tuple = Token::FixedSeq(vec![address1, address2, uint]);
         let expected = vec![tuple];
         let decoded = decode(
             &[ParamType::Tuple(vec![
@@ -351,9 +366,9 @@ mod tests {
 			6761766f66796f726b0000000000000000000000000000000000000000000000
 		"
         );
-        let string1 = Token::String("gavofyork".to_owned());
-        let string2 = Token::String("gavofyork".to_owned());
-        let tuple = Token::Tuple(vec![string1, string2]);
+        let string1 = Token::PackedSeq(b"gavofyork".to_vec());
+        let string2 = Token::PackedSeq(b"gavofyork".to_vec());
+        let tuple = Token::FixedSeq(vec![string1, string2]);
         let decoded = decode(
             &[ParamType::Tuple(vec![ParamType::String, ParamType::String])],
             &encoded,
@@ -391,16 +406,16 @@ mod tests {
 			66756e7465737473000000000000000000000000000000000000000000000000
 		"
         );
-        let string1 = Token::String("test".to_owned());
-        let string2 = Token::String("cyborg".to_owned());
-        let string3 = Token::String("night".to_owned());
-        let string4 = Token::String("day".to_owned());
-        let string5 = Token::String("weee".to_owned());
-        let string6 = Token::String("funtests".to_owned());
-        let bool = Token::Bool(true);
-        let deep_tuple = Token::Tuple(vec![string5, string6]);
-        let inner_tuple = Token::Tuple(vec![string3, string4, deep_tuple]);
-        let outer_tuple = Token::Tuple(vec![string1, bool, string2, inner_tuple]);
+        let string1 = Token::PackedSeq(b"test".to_vec());
+        let string2 = Token::PackedSeq(b"cyborg".to_vec());
+        let string3 = Token::PackedSeq(b"night".to_vec());
+        let string4 = Token::PackedSeq(b"day".to_vec());
+        let string5 = Token::PackedSeq(b"weee".to_vec());
+        let string6 = Token::PackedSeq(b"funtests".to_vec());
+        let bool = true.to_token();
+        let deep_tuple = Token::FixedSeq(vec![string5, string6]);
+        let inner_tuple = Token::FixedSeq(vec![string3, string4, deep_tuple]);
+        let outer_tuple = Token::FixedSeq(vec![string1, bool, string2, inner_tuple]);
         let expected = vec![outer_tuple];
         let decoded = decode(
             &[ParamType::Tuple(vec![
@@ -432,11 +447,11 @@ mod tests {
 			6761766f66796f726b0000000000000000000000000000000000000000000000
 		"
         );
-        let uint = Token::Uint([0x11u8; 32].into());
-        let string = Token::String("gavofyork".to_owned());
-        let address1 = Token::Address([0x11u8; 20].into());
-        let address2 = Token::Address([0x22u8; 20].into());
-        let tuple = Token::Tuple(vec![uint, string, address1, address2]);
+        let uint = Token::Word([0x11u8; 32].into());
+        let string = Token::PackedSeq(b"gavofyork".to_vec());
+        let address1 = B160([0x11u8; 20]).to_token();
+        let address2 = B160([0x22u8; 20]).to_token();
+        let tuple = Token::FixedSeq(vec![uint, string, address1, address2]);
         let expected = vec![tuple];
         let decoded = decode(
             &[ParamType::Tuple(vec![
@@ -469,14 +484,14 @@ mod tests {
 			6379626f72670000000000000000000000000000000000000000000000000000
 		"
         );
-        let address1 = Token::Address([0x22u8; 20].into());
-        let bool1 = Token::Bool(true);
-        let string1 = Token::String("spaceship".to_owned());
-        let string2 = Token::String("cyborg".to_owned());
-        let tuple = Token::Tuple(vec![bool1, string1, string2]);
-        let address2 = Token::Address([0x33u8; 20].into());
-        let address3 = Token::Address([0x44u8; 20].into());
-        let bool2 = Token::Bool(false);
+        let address1 = B160([0x22u8; 20]).to_token();
+        let bool1 = true.to_token();
+        let string1 = Token::PackedSeq(b"spaceship".to_vec());
+        let string2 = Token::PackedSeq(b"cyborg".to_vec());
+        let tuple = Token::FixedSeq(vec![bool1, string1, string2]);
+        let address2 = B160([0x33u8; 20]).to_token();
+        let address3 = B160([0x44u8; 20]).to_token();
+        let bool2 = false.to_token();
         let expected = vec![address1, tuple, address2, address3, bool2];
         let decoded = decode(
             &[
@@ -504,13 +519,13 @@ mod tests {
 			0000000000000000000000004444444444444444444444444444444444444444
 		"
         );
-        let address1 = Token::Address([0x11u8; 20].into());
-        let address2 = Token::Address([0x22u8; 20].into());
-        let bool1 = Token::Bool(true);
-        let bool2 = Token::Bool(false);
-        let tuple = Token::Tuple(vec![address2, bool1, bool2]);
-        let address3 = Token::Address([0x33u8; 20].into());
-        let address4 = Token::Address([0x44u8; 20].into());
+        let address1 = B160([0x11u8; 20]).to_token();
+        let address2 = B160([0x22u8; 20]).to_token();
+        let bool1 = true.to_token();
+        let bool2 = false.to_token();
+        let tuple = Token::FixedSeq(vec![address2, bool1, bool2]);
+        let address3 = B160([0x33u8; 20]).to_token();
+        let address4 = B160([0x44u8; 20]).to_token();
 
         let expected = vec![address1, tuple, address3, address4];
         let decoded = decode(
@@ -558,11 +573,11 @@ mod tests {
 				&encoded,
 			).unwrap(),
 			&[
-				Token::Uint(pad_u32(0)),
-				Token::String(String::from("12203967b532a0c14c980b5aeffb17048bdfaef2c293a9509f08eb3c6b0f5f8f0942e7b9cc76ca51cca26ce546920448e308fda6870b5e2ae12a2409d942de428113P720p30fps16x9")),
-				Token::String(String::from("93c717e7c0a6517a")),
-				Token::Uint(pad_u32(1)),
-				Token::Uint(pad_u32(5538829))
+				Token::Word(pad_u32(0)),
+				Token::PackedSeq(b"12203967b532a0c14c980b5aeffb17048bdfaef2c293a9509f08eb3c6b0f5f8f0942e7b9cc76ca51cca26ce546920448e308fda6870b5e2ae12a2409d942de428113P720p30fps16x9".to_vec()),
+				Token::PackedSeq(b"93c717e7c0a6517a".to_vec()),
+				Token::Word(pad_u32(1)),
+				Token::Word(pad_u32(5538829))
 			]
 		);
     }
@@ -592,10 +607,10 @@ mod tests {
             )
             .unwrap(),
             &[
-                Token::Address(hex!("8497afefdc5ac170a664a231f6efb25526ef813f").into()),
-                Token::FixedBytes([0u8; 32].to_vec()),
-                Token::FixedBytes([0u8; 4].to_vec()),
-                Token::String("0x0000001F".into()),
+                B160(hex!("8497afefdc5ac170a664a231f6efb25526ef813f")).to_token(),
+                Token::Word(B256([0u8; 32])),
+                Token::Word(B256([0u8; 32])),
+                Token::PackedSeq("0x0000001F".into()),
             ]
         )
     }
@@ -611,8 +626,8 @@ mod tests {
         );
 
         assert_eq!(
-            decode(&[ParamType::String,], &encoded).unwrap(),
-            &[Token::String("不�".into())]
+            decode(&[ParamType::String], &encoded).unwrap(),
+            &[Token::PackedSeq([0xe4, 0xb8, 0x8d, 0xe5].to_vec())]
         );
     }
 

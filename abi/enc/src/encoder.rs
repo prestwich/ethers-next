@@ -22,10 +22,6 @@ fn pad_bytes_append(data: &mut Vec<Word>, bytes: &[u8]) {
     fixed_bytes_append(data, bytes);
 }
 
-fn fixed_bytes_len(bytes: &[u8]) -> u32 {
-    ((bytes.len() + 31) / 32) as u32
-}
-
 fn fixed_bytes_append(result: &mut Vec<Word>, bytes: &[u8]) {
     let len = (bytes.len() + 31) / 32;
     for i in 0..len {
@@ -146,17 +142,8 @@ fn encode_head_tail_append(acc: &mut Vec<Word>, mediates: &[Mediate]) {
 
 fn mediate_token(token: &Token) -> Mediate {
     match token {
-        Token::Address(_) => Mediate::Raw(1, token),
-        Token::Bytes(bytes) => Mediate::Prefixed(pad_bytes_len(bytes), token),
-        Token::String(s) => Mediate::Prefixed(pad_bytes_len(s.as_bytes()), token),
-        Token::FixedBytes(bytes) => Mediate::Raw(fixed_bytes_len(bytes), token),
-        Token::Int(_) | Token::Uint(_) | Token::Bool(_) => Mediate::Raw(1, token),
-        Token::Array(ref tokens) => {
-            let mediates = tokens.iter().map(mediate_token).collect();
-
-            Mediate::PrefixedArrayWithLength(mediates)
-        }
-        Token::FixedArray(ref tokens) | Token::Tuple(ref tokens) => {
+        Token::Word(_) => Mediate::Raw(1, token),
+        Token::FixedSeq(tokens) => {
             let mediates = tokens.iter().map(mediate_token).collect();
 
             if token.is_dynamic() {
@@ -165,41 +152,35 @@ fn mediate_token(token: &Token) -> Mediate {
                 Mediate::RawArray(mediates)
             }
         }
+        Token::DynSeq(tokens) => {
+            let mediates = tokens.iter().map(mediate_token).collect();
+
+            Mediate::PrefixedArrayWithLength(mediates)
+        }
+        Token::PackedSeq(seq) => Mediate::Prefixed(pad_bytes_len(seq), token),
     }
 }
 
 fn encode_token_append(data: &mut Vec<Word>, token: &Token) {
-    match *token {
-        Token::Address(ref address) => {
-            let mut padded = Word::default();
-            padded[12..].copy_from_slice(address.as_ref());
-            data.push(padded);
-        }
-        Token::Bytes(ref bytes) => pad_bytes_append(data, bytes),
-        Token::String(ref s) => pad_bytes_append(data, s.as_bytes()),
-        Token::FixedBytes(ref bytes) => fixed_bytes_append(data, bytes),
-        Token::Int(int) => data.push(int),
-        Token::Uint(uint) => data.push(uint),
-        Token::Bool(b) => {
-            let mut value = Word::default();
-            value.as_fixed_bytes_mut()[31] = b.into();
-            data.push(value);
-        }
+    match token {
+        Token::Word(word) => data.push(*word),
+        Token::PackedSeq(bytes) => pad_bytes_append(data, bytes),
         _ => panic!("Unhandled nested token: {:?}", token),
     };
 }
 
 #[cfg(test)]
 mod tests {
+    use ethers_primitives::B160;
     use hex_literal::hex;
 
     #[cfg(not(feature = "std"))]
     use crate::no_std_prelude::*;
-    use crate::{encode, util::pad_u32, Token};
+    use crate::{encode, util::pad_u32, Token, Tokenize, Word};
 
     #[test]
     fn encode_address() {
-        let address = Token::Address([0x11u8; 20].into());
+        let address = Token::Word(B160([0x11u8; 20]).into());
         let encoded = encode(&[address]);
         let expected = hex!("0000000000000000000000001111111111111111111111111111111111111111");
         assert_eq!(encoded, expected);
@@ -207,9 +188,9 @@ mod tests {
 
     #[test]
     fn encode_dynamic_array_of_addresses() {
-        let address1 = Token::Address([0x11u8; 20].into());
-        let address2 = Token::Address([0x22u8; 20].into());
-        let addresses = Token::Array(vec![address1, address2]);
+        let address1 = Token::Word(B160([0x11u8; 20]).into());
+        let address2 = Token::Word(B160([0x22u8; 20]).into());
+        let addresses = Token::DynSeq(vec![address1, address2]);
         let encoded = encode(&[addresses]);
         let expected = hex!(
             "
@@ -225,9 +206,9 @@ mod tests {
 
     #[test]
     fn encode_fixed_array_of_addresses() {
-        let address1 = Token::Address([0x11u8; 20].into());
-        let address2 = Token::Address([0x22u8; 20].into());
-        let addresses = Token::FixedArray(vec![address1, address2]);
+        let address1 = Token::Word(B160([0x11u8; 20]).into());
+        let address2 = Token::Word(B160([0x22u8; 20]).into());
+        let addresses = Token::FixedSeq(vec![address1, address2]);
         let encoded = encode(&[addresses]);
         let expected = hex!(
             "
@@ -241,8 +222,8 @@ mod tests {
 
     #[test]
     fn encode_two_addresses() {
-        let address1 = Token::Address([0x11u8; 20].into());
-        let address2 = Token::Address([0x22u8; 20].into());
+        let address1 = Token::Word(B160([0x11u8; 20]).into());
+        let address2 = Token::Word(B160([0x22u8; 20]).into());
         let encoded = encode(&[address1, address2]);
         let expected = hex!(
             "
@@ -256,13 +237,13 @@ mod tests {
 
     #[test]
     fn encode_fixed_array_of_dynamic_array_of_addresses() {
-        let address1 = Token::Address([0x11u8; 20].into());
-        let address2 = Token::Address([0x22u8; 20].into());
-        let address3 = Token::Address([0x33u8; 20].into());
-        let address4 = Token::Address([0x44u8; 20].into());
-        let array0 = Token::Array(vec![address1, address2]);
-        let array1 = Token::Array(vec![address3, address4]);
-        let fixed = Token::FixedArray(vec![array0, array1]);
+        let address1 = Token::Word(B160([0x11u8; 20]).into());
+        let address2 = Token::Word(B160([0x22u8; 20]).into());
+        let address3 = Token::Word(B160([0x33u8; 20]).into());
+        let address4 = Token::Word(B160([0x44u8; 20]).into());
+        let array0 = Token::DynSeq(vec![address1, address2]);
+        let array1 = Token::DynSeq(vec![address3, address4]);
+        let fixed = Token::FixedSeq(vec![array0, array1]);
         let encoded = encode(&[fixed]);
         let expected = hex!(
             "
@@ -283,13 +264,13 @@ mod tests {
 
     #[test]
     fn encode_dynamic_array_of_fixed_array_of_addresses() {
-        let address1 = Token::Address([0x11u8; 20].into());
-        let address2 = Token::Address([0x22u8; 20].into());
-        let address3 = Token::Address([0x33u8; 20].into());
-        let address4 = Token::Address([0x44u8; 20].into());
-        let array0 = Token::FixedArray(vec![address1, address2]);
-        let array1 = Token::FixedArray(vec![address3, address4]);
-        let dynamic = Token::Array(vec![array0, array1]);
+        let address1 = Token::Word(B160([0x11u8; 20]).into());
+        let address2 = Token::Word(B160([0x22u8; 20]).into());
+        let address3 = Token::Word(B160([0x33u8; 20]).into());
+        let address4 = Token::Word(B160([0x44u8; 20]).into());
+        let array0 = Token::FixedSeq(vec![address1, address2]);
+        let array1 = Token::FixedSeq(vec![address3, address4]);
+        let dynamic = Token::DynSeq(vec![array0, array1]);
         let encoded = encode(&[dynamic]);
         let expected = hex!(
             "
@@ -307,11 +288,11 @@ mod tests {
 
     #[test]
     fn encode_dynamic_array_of_dynamic_arrays() {
-        let address1 = Token::Address([0x11u8; 20].into());
-        let address2 = Token::Address([0x22u8; 20].into());
-        let array0 = Token::Array(vec![address1]);
-        let array1 = Token::Array(vec![address2]);
-        let dynamic = Token::Array(vec![array0, array1]);
+        let address1 = Token::Word(B160([0x11u8; 20]).into());
+        let address2 = Token::Word(B160([0x22u8; 20]).into());
+        let array0 = Token::DynSeq(vec![address1]);
+        let array1 = Token::DynSeq(vec![address2]);
+        let dynamic = Token::DynSeq(vec![array0, array1]);
         let encoded = encode(&[dynamic]);
         let expected = hex!(
             "
@@ -331,13 +312,13 @@ mod tests {
 
     #[test]
     fn encode_dynamic_array_of_dynamic_arrays2() {
-        let address1 = Token::Address([0x11u8; 20].into());
-        let address2 = Token::Address([0x22u8; 20].into());
-        let address3 = Token::Address([0x33u8; 20].into());
-        let address4 = Token::Address([0x44u8; 20].into());
-        let array0 = Token::Array(vec![address1, address2]);
-        let array1 = Token::Array(vec![address3, address4]);
-        let dynamic = Token::Array(vec![array0, array1]);
+        let address1 = Token::Word(B160([0x11u8; 20]).into());
+        let address2 = Token::Word(B160([0x22u8; 20]).into());
+        let address3 = Token::Word(B160([0x33u8; 20]).into());
+        let address4 = Token::Word(B160([0x44u8; 20]).into());
+        let array0 = Token::DynSeq(vec![address1, address2]);
+        let array1 = Token::DynSeq(vec![address3, address4]);
+        let dynamic = Token::DynSeq(vec![array0, array1]);
         let encoded = encode(&[dynamic]);
         let expected = hex!(
             "
@@ -359,13 +340,13 @@ mod tests {
 
     #[test]
     fn encode_fixed_array_of_fixed_arrays() {
-        let address1 = Token::Address([0x11u8; 20].into());
-        let address2 = Token::Address([0x22u8; 20].into());
-        let address3 = Token::Address([0x33u8; 20].into());
-        let address4 = Token::Address([0x44u8; 20].into());
-        let array0 = Token::FixedArray(vec![address1, address2]);
-        let array1 = Token::FixedArray(vec![address3, address4]);
-        let fixed = Token::FixedArray(vec![array0, array1]);
+        let address1 = Token::Word(B160([0x11u8; 20]).into());
+        let address2 = Token::Word(B160([0x22u8; 20]).into());
+        let address3 = Token::Word(B160([0x33u8; 20]).into());
+        let address4 = Token::Word(B160([0x44u8; 20]).into());
+        let array0 = Token::FixedSeq(vec![address1, address2]);
+        let array1 = Token::FixedSeq(vec![address3, address4]);
+        let fixed = Token::FixedSeq(vec![array0, array1]);
         let encoded = encode(&[fixed]);
         let expected = hex!(
             "
@@ -381,18 +362,18 @@ mod tests {
 
     #[test]
     fn encode_fixed_array_of_static_tuples_followed_by_dynamic_type() {
-        let tuple1 = Token::Tuple(vec![
-            Token::Uint(pad_u32(93523141)),
-            Token::Uint(pad_u32(352332135)),
-            Token::Address([0x44u8; 20].into()),
+        let tuple1 = Token::FixedSeq(vec![
+            Token::Word(pad_u32(93523141)),
+            Token::Word(pad_u32(352332135)),
+            Token::Word(B160([0x44u8; 20]).into()),
         ]);
-        let tuple2 = Token::Tuple(vec![
-            Token::Uint(pad_u32(12411)),
-            Token::Uint(pad_u32(451)),
-            Token::Address([0x22u8; 20].into()),
+        let tuple2 = Token::FixedSeq(vec![
+            Token::Word(pad_u32(12411)),
+            Token::Word(pad_u32(451)),
+            Token::Word(B160([0x22u8; 20]).into()),
         ]);
-        let fixed = Token::FixedArray(vec![tuple1, tuple2]);
-        let s = Token::String("gavofyork".to_owned());
+        let fixed = Token::FixedSeq(vec![tuple1, tuple2]);
+        let s = Token::PackedSeq(b"gavofyork".to_vec());
         let encoded = encode(&[fixed, s]);
         let expected = hex!(
             "
@@ -414,7 +395,7 @@ mod tests {
     #[test]
     fn encode_empty_array() {
         // Empty arrays
-        let encoded = encode(&[Token::Array(vec![]), Token::Array(vec![])]);
+        let encoded = encode(&[Token::DynSeq(vec![]), Token::DynSeq(vec![])]);
         let expected = hex!(
             "
 			0000000000000000000000000000000000000000000000000000000000000040
@@ -428,8 +409,8 @@ mod tests {
 
         // Nested empty arrays
         let encoded = encode(&[
-            Token::Array(vec![Token::Array(vec![])]),
-            Token::Array(vec![Token::Array(vec![])]),
+            Token::DynSeq(vec![Token::DynSeq(vec![])]),
+            Token::DynSeq(vec![Token::DynSeq(vec![])]),
         ]);
         let expected = hex!(
             "
@@ -449,7 +430,7 @@ mod tests {
 
     #[test]
     fn encode_bytes() {
-        let bytes = Token::Bytes(vec![0x12, 0x34]);
+        let bytes = Token::PackedSeq(vec![0x12, 0x34]);
         let encoded = encode(&[bytes]);
         let expected = hex!(
             "
@@ -464,7 +445,9 @@ mod tests {
 
     #[test]
     fn encode_fixed_bytes() {
-        let bytes = Token::FixedBytes(vec![0x12, 0x34]);
+        let mut word = Word::default();
+        word[0..2].copy_from_slice(&[0x12, 0x34]);
+        let bytes = Token::Word(word);
         let encoded = encode(&[bytes]);
         let expected = hex!("1234000000000000000000000000000000000000000000000000000000000000");
         assert_eq!(encoded, expected);
@@ -472,7 +455,7 @@ mod tests {
 
     #[test]
     fn encode_string() {
-        let s = Token::String("gavofyork".to_owned());
+        let s = Token::PackedSeq(b"gavofyork".to_vec());
         let encoded = encode(&[s]);
         let expected = hex!(
             "
@@ -487,7 +470,7 @@ mod tests {
 
     #[test]
     fn encode_bytes2() {
-        let bytes = Token::Bytes(
+        let bytes = Token::PackedSeq(
             hex!("10000000000000000000000000000000000000000000000000000000000002").to_vec(),
         );
         let encoded = encode(&[bytes]);
@@ -504,7 +487,7 @@ mod tests {
 
     #[test]
     fn encode_bytes3() {
-        let bytes = Token::Bytes(
+        let bytes = Token::PackedSeq(
             hex!(
                 "
 			1000000000000000000000000000000000000000000000000000000000000000
@@ -528,10 +511,10 @@ mod tests {
 
     #[test]
     fn encode_two_bytes() {
-        let bytes1 = Token::Bytes(
+        let bytes1 = Token::PackedSeq(
             hex!("10000000000000000000000000000000000000000000000000000000000002").to_vec(),
         );
-        let bytes2 = Token::Bytes(
+        let bytes2 = Token::PackedSeq(
             hex!("0010000000000000000000000000000000000000000000000000000000000002").to_vec(),
         );
         let encoded = encode(&[bytes1, bytes2]);
@@ -553,7 +536,7 @@ mod tests {
     fn encode_uint() {
         let mut uint = [0u8; 32];
         uint[31] = 4;
-        let encoded = encode(&[Token::Uint(uint.into())]);
+        let encoded = encode(&[Token::Word(uint.into())]);
         let expected = hex!("0000000000000000000000000000000000000000000000000000000000000004");
         assert_eq!(encoded, expected);
     }
@@ -562,21 +545,21 @@ mod tests {
     fn encode_int() {
         let mut int = [0u8; 32];
         int[31] = 4;
-        let encoded = encode(&[Token::Int(int.into())]);
+        let encoded = encode(&[Token::Word(int.into())]);
         let expected = hex!("0000000000000000000000000000000000000000000000000000000000000004");
         assert_eq!(encoded, expected);
     }
 
     #[test]
     fn encode_bool() {
-        let encoded = encode(&[Token::Bool(true)]);
+        let encoded = encode(&[true.to_token()]);
         let expected = hex!("0000000000000000000000000000000000000000000000000000000000000001");
         assert_eq!(encoded, expected);
     }
 
     #[test]
     fn encode_bool2() {
-        let encoded = encode(&[Token::Bool(false)]);
+        let encoded = encode(&[false.to_token()]);
         let expected = hex!("0000000000000000000000000000000000000000000000000000000000000000");
         assert_eq!(encoded, expected);
     }
@@ -591,10 +574,10 @@ mod tests {
         )
         .to_vec();
         let encoded = encode(&[
-            Token::Int(pad_u32(5)),
-            Token::Bytes(bytes.clone()),
-            Token::Int(pad_u32(3)),
-            Token::Bytes(bytes),
+            Token::Word(pad_u32(5)),
+            Token::PackedSeq(bytes.clone()),
+            Token::Word(pad_u32(3)),
+            Token::PackedSeq(bytes),
         ]);
 
         let expected = hex!(
@@ -625,15 +608,15 @@ mod tests {
     #[test]
     fn comprehensive_test2() {
         let encoded = encode(&vec![
-            Token::Int(pad_u32(1)),
-            Token::String("gavofyork".to_owned()),
-            Token::Int(pad_u32(2)),
-            Token::Int(pad_u32(3)),
-            Token::Int(pad_u32(4)),
-            Token::Array(vec![
-                Token::Int(pad_u32(5)),
-                Token::Int(pad_u32(6)),
-                Token::Int(pad_u32(7)),
+            Token::Word(pad_u32(1)),
+            Token::PackedSeq(b"gavofyork".to_vec()),
+            Token::Word(pad_u32(2)),
+            Token::Word(pad_u32(3)),
+            Token::Word(pad_u32(4)),
+            Token::DynSeq(vec![
+                Token::Word(pad_u32(5)),
+                Token::Word(pad_u32(6)),
+                Token::Word(pad_u32(7)),
             ]),
         ]);
 
@@ -661,7 +644,7 @@ mod tests {
     fn encode_dynamic_array_of_bytes() {
         let bytes =
             hex!("019c80031b20d5e69c8093a571162299032018d913930d93ab320ae5ea44a4218a274f00d607");
-        let encoded = encode(&[Token::Array(vec![Token::Bytes(bytes.to_vec())])]);
+        let encoded = encode(&[Token::DynSeq(vec![Token::PackedSeq(bytes.to_vec())])]);
 
         let expected = hex!(
             "
@@ -683,9 +666,9 @@ mod tests {
             hex!("4444444444444444444444444444444444444444444444444444444444444444444444444444");
         let bytes2 =
             hex!("6666666666666666666666666666666666666666666666666666666666666666666666666666");
-        let encoded = encode(&[Token::Array(vec![
-            Token::Bytes(bytes.to_vec()),
-            Token::Bytes(bytes2.to_vec()),
+        let encoded = encode(&[Token::DynSeq(vec![
+            Token::PackedSeq(bytes.to_vec()),
+            Token::PackedSeq(bytes2.to_vec()),
         ])]);
 
         let expected = hex!(
@@ -708,9 +691,9 @@ mod tests {
 
     #[test]
     fn encode_static_tuple_of_addresses() {
-        let address1 = Token::Address([0x11u8; 20].into());
-        let address2 = Token::Address([0x22u8; 20].into());
-        let encoded = encode(&[Token::Tuple(vec![address1, address2])]);
+        let address1 = Token::Word(B160([0x11u8; 20]).into());
+        let address2 = Token::Word(B160([0x22u8; 20]).into());
+        let encoded = encode(&[Token::FixedSeq(vec![address1, address2])]);
 
         let expected = hex!(
             "
@@ -724,9 +707,9 @@ mod tests {
 
     #[test]
     fn encode_dynamic_tuple() {
-        let string1 = Token::String("gavofyork".to_owned());
-        let string2 = Token::String("gavofyork".to_owned());
-        let tuple = Token::Tuple(vec![string1, string2]);
+        let string1 = Token::PackedSeq(b"gavofyork".to_vec());
+        let string2 = Token::PackedSeq(b"gavofyork".to_vec());
+        let tuple = Token::FixedSeq(vec![string1, string2]);
         let encoded = encode(&[tuple]);
         let expected = hex!(
             "
@@ -749,9 +732,9 @@ mod tests {
             hex!("4444444444444444444444444444444444444444444444444444444444444444444444444444");
         let bytes2 =
             hex!("6666666666666666666666666666666666666666666666666666666666666666666666666666");
-        let encoded = encode(&[Token::Tuple(vec![
-            Token::Bytes(bytes.to_vec()),
-            Token::Bytes(bytes2.to_vec()),
+        let encoded = encode(&[Token::FixedSeq(vec![
+            Token::PackedSeq(bytes.to_vec()),
+            Token::PackedSeq(bytes2.to_vec()),
         ])]);
 
         let expected = hex!(
@@ -773,11 +756,11 @@ mod tests {
 
     #[test]
     fn encode_complex_tuple() {
-        let uint = Token::Uint([0x11u8; 32].into());
-        let string = Token::String("gavofyork".to_owned());
-        let address1 = Token::Address([0x11u8; 20].into());
-        let address2 = Token::Address([0x22u8; 20].into());
-        let tuple = Token::Tuple(vec![uint, string, address1, address2]);
+        let uint = Token::Word([0x11u8; 32].into());
+        let string = Token::PackedSeq(b"gavofyork".to_vec());
+        let address1 = Token::Word(B160([0x11u8; 20]).into());
+        let address2 = Token::Word(B160([0x22u8; 20]).into());
+        let tuple = Token::FixedSeq(vec![uint, string, address1, address2]);
         let encoded = encode(&[tuple]);
         let expected = hex!(
             "
@@ -796,16 +779,16 @@ mod tests {
 
     #[test]
     fn encode_nested_tuple() {
-        let string1 = Token::String("test".to_owned());
-        let string2 = Token::String("cyborg".to_owned());
-        let string3 = Token::String("night".to_owned());
-        let string4 = Token::String("day".to_owned());
-        let string5 = Token::String("weee".to_owned());
-        let string6 = Token::String("funtests".to_owned());
-        let bool = Token::Bool(true);
-        let deep_tuple = Token::Tuple(vec![string5, string6]);
-        let inner_tuple = Token::Tuple(vec![string3, string4, deep_tuple]);
-        let outer_tuple = Token::Tuple(vec![string1, bool, string2, inner_tuple]);
+        let string1 = Token::PackedSeq(b"test".to_vec());
+        let string2 = Token::PackedSeq(b"cyborg".to_vec());
+        let string3 = Token::PackedSeq(b"night".to_vec());
+        let string4 = Token::PackedSeq(b"day".to_vec());
+        let string5 = Token::PackedSeq(b"weee".to_vec());
+        let string6 = Token::PackedSeq(b"funtests".to_vec());
+        let bool = true.to_token();
+        let deep_tuple = Token::FixedSeq(vec![string5, string6]);
+        let inner_tuple = Token::FixedSeq(vec![string3, string4, deep_tuple]);
+        let outer_tuple = Token::FixedSeq(vec![string1, bool, string2, inner_tuple]);
         let encoded = encode(&[outer_tuple]);
         let expected = hex!(
             "
@@ -839,14 +822,14 @@ mod tests {
 
     #[test]
     fn encode_params_containing_dynamic_tuple() {
-        let address1 = Token::Address([0x22u8; 20].into());
-        let bool1 = Token::Bool(true);
-        let string1 = Token::String("spaceship".to_owned());
-        let string2 = Token::String("cyborg".to_owned());
-        let tuple = Token::Tuple(vec![bool1, string1, string2]);
-        let address2 = Token::Address([0x33u8; 20].into());
-        let address3 = Token::Address([0x44u8; 20].into());
-        let bool2 = Token::Bool(false);
+        let address1 = Token::Word(B160([0x22u8; 20]).into());
+        let bool1 = true.to_token();
+        let string1 = Token::PackedSeq(b"spaceship".to_vec());
+        let string2 = Token::PackedSeq(b"cyborg".to_vec());
+        let tuple = Token::FixedSeq(vec![bool1, string1, string2]);
+        let address2 = Token::Word(B160([0x33u8; 20]).into());
+        let address3 = Token::Word(B160([0x44u8; 20]).into());
+        let bool2 = false.to_token();
         let encoded = encode(&[address1, tuple, address2, address3, bool2]);
         let expected = hex!(
             "
@@ -870,13 +853,13 @@ mod tests {
 
     #[test]
     fn encode_params_containing_static_tuple() {
-        let address1 = Token::Address([0x11u8; 20].into());
-        let address2 = Token::Address([0x22u8; 20].into());
-        let bool1 = Token::Bool(true);
-        let bool2 = Token::Bool(false);
-        let tuple = Token::Tuple(vec![address2, bool1, bool2]);
-        let address3 = Token::Address([0x33u8; 20].into());
-        let address4 = Token::Address([0x44u8; 20].into());
+        let address1 = Token::Word(B160([0x11u8; 20]).into());
+        let address2 = Token::Word(B160([0x22u8; 20]).into());
+        let bool1 = true.to_token();
+        let bool2 = false.to_token();
+        let tuple = Token::FixedSeq(vec![address2, bool1, bool2]);
+        let address3 = Token::Word(B160([0x33u8; 20]).into());
+        let address4 = Token::Word(B160([0x44u8; 20]).into());
         let encoded = encode(&[address1, tuple, address3, address4]);
         let expected = hex!(
             "
@@ -896,9 +879,9 @@ mod tests {
     fn encode_dynamic_tuple_with_nested_static_tuples() {
         let token = {
             use crate::Token::*;
-            Tuple(vec![
-                Tuple(vec![Tuple(vec![Bool(false), Uint(pad_u32(0x777))])]),
-                Array(vec![Uint(pad_u32(0x42)), Uint(pad_u32(0x1337))]),
+            FixedSeq(vec![
+                FixedSeq(vec![FixedSeq(vec![false.to_token(), Word(pad_u32(0x777))])]),
+                DynSeq(vec![Word(pad_u32(0x42)), Word(pad_u32(0x1337))]),
             ])
         };
         let encoded = encode(&[token]);

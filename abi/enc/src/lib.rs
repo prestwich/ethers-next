@@ -34,6 +34,9 @@ pub use encoder::encode;
 mod token;
 pub use token::Token;
 
+mod tokenize;
+pub use tokenize::Tokenize;
+
 mod errors;
 pub use errors::{Error, Result};
 

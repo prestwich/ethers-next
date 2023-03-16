@@ -20,7 +20,6 @@ pub type Hash = B256;
 
 // ruint reexports
 pub use ruint::{
-    self,
     aliases::{B128 as H128, B64 as H64, U128, U256, U64},
     uint,
 };
