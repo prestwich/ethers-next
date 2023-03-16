@@ -23,7 +23,7 @@ use crate::{ParamType, Word};
 pub enum Token {
     /// Single Word
     Word(Word),
-    /// Tuple or T[M]
+    /// Tuple or `T[M]`
     FixedSeq(Vec<Token>),
     /// T[]
     DynSeq(Vec<Token>),
@@ -43,6 +43,44 @@ impl fmt::Display for Token {
 }
 
 impl Token {
+    /// Return a reference to the underlying word for a value type
+    pub fn as_word(&self) -> Option<&Word> {
+        match self {
+            Token::Word(word) => Some(word),
+            _ => None,
+        }
+    }
+
+    /// Return a reference to the underlying word for a value type
+    pub fn as_word_array(&self) -> Option<&[u8; 32]> {
+        self.as_word().map(AsRef::as_ref)
+    }
+
+    /// Return a reference to the underlying buffer for a packed sequence
+    /// (string or bytes)
+    pub fn as_packed_data(&self) -> Option<&[u8]> {
+        match self {
+            Token::PackedSeq(buf) => Some(buf.as_ref()),
+            _ => None,
+        }
+    }
+
+    /// Return a reference to the underlying vector for a dynamic sequence
+    pub fn as_dyn_seq(&self) -> Option<&[Token]> {
+        match self {
+            Token::DynSeq(buf) => Some(buf.as_ref()),
+            _ => None,
+        }
+    }
+
+    /// Return a reference to the underlying vector for a dynamic sequence
+    pub fn as_fixed_seq(&self) -> Option<&[Token]> {
+        match self {
+            Token::FixedSeq(buf) => Some(buf.as_ref()),
+            _ => None,
+        }
+    }
+
     /// Check whether the type of the token matches the given parameter type.
     ///
     /// Numeric types (`Int` and `Uint`) type check if the size of the token
