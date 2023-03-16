@@ -12,7 +12,7 @@ pub trait SolType {
     fn is_dynamic() -> bool;
     fn type_check(token: &Token) -> bool;
     fn detokenize(token: &Token) -> crate::Result<Self::RustType>;
-    fn tokenize(_rust: Self::RustType) -> Token;
+    fn tokenize(rust: Self::RustType) -> Token;
 }
 
 pub struct Address;
@@ -514,7 +514,10 @@ impl SolType for Function {
         Ok((B160(address), selector))
     }
 
-    fn tokenize(_rust: Self::RustType) -> Token {
-        todo!()
+    fn tokenize(rust: Self::RustType) -> Token {
+        let mut word = Word::default();
+        word[..20].copy_from_slice(&rust.0[..]);
+        word[20..24].copy_from_slice(&rust.1[..]);
+        Token::Word(word)
     }
 }
