@@ -26,7 +26,7 @@ use ethers_primitives::{B160, B256};
 use no_std_prelude::*;
 
 mod decoder;
-pub use decoder::{decode, decode_validate};
+pub use decoder::{decode, decode_params, decode_params_validate, decode_validate};
 
 mod encoder;
 pub use encoder::encode;
@@ -37,11 +37,9 @@ pub use token::Token;
 mod errors;
 pub use errors::{Error, Result};
 
-mod param_type;
-pub use param_type::ParamType;
-
-// re-export the module
-pub use param_type::sol_type::{self, SolType};
+/// Solidity Types
+pub mod sol_type;
+pub use sol_type::SolType;
 
 pub mod util;
 

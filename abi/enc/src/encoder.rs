@@ -106,8 +106,8 @@ impl Mediate<'_> {
 }
 
 /// Encodes vector of tokens into ABI compliant vector of bytes.
-pub fn encode(tokens: &[Token]) -> Bytes {
-    let mediates = &tokens.iter().map(mediate_token).collect::<Vec<_>>();
+pub fn encode<'a>(tokens: impl IntoIterator<Item = &'a Token>) -> Bytes {
+    let mediates = &tokens.into_iter().map(mediate_token).collect::<Vec<_>>();
 
     encode_head_tail(mediates)
         .into_iter()

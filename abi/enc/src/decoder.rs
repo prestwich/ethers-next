@@ -8,82 +8,11 @@
 
 //! ABI decoder.
 
+use core::ops::Range;
+
 #[cfg(not(feature = "std"))]
 use crate::no_std_prelude::*;
-use crate::{Error, SolType, Token, Word};
-
-#[doc(hidden)]
-#[derive(Debug)]
-pub struct DecodeResult {
-    pub token: Token,
-    pub new_offset: usize,
-}
-
-pub(crate) fn as_usize(slice: &Word) -> Result<usize, Error> {
-    check_zeroes(&slice[..28])?;
-
-    let result = ((slice[28] as usize) << 24)
-        + ((slice[29] as usize) << 16)
-        + ((slice[30] as usize) << 8)
-        + (slice[31] as usize);
-
-    Ok(result)
-}
-
-pub(crate) fn check_bool(slice: Word) -> Result<(), Error> {
-    check_zeroes(&slice[..31])?;
-    Ok(())
-}
-
-pub(crate) fn decode_impl<T>(data: &[u8], validate: bool) -> crate::Result<DecodeResult>
-where
-    T: SolType,
-{
-    if data.is_empty() {
-        return Err(Error::InvalidData);
-    }
-
-    let result = T::read_token(data, 0)?;
-
-    if validate && result.new_offset != data.len() {
-        return Err(Error::InvalidData);
-    }
-
-    Ok(result)
-}
-
-/// Decodes ABI compliant vector of bytes into vector of tokens described by types param.
-/// Checks, that decoded data is exact as input provided
-pub fn decode_validate<T>(data: &[u8]) -> crate::Result<Token>
-where
-    T: SolType,
-{
-    Ok(decode_impl::<T>(data, true)?.token)
-}
-
-/// Decodes ABI compliant vector of bytes into vector of tokens described by types param.
-pub fn decode<T>(data: &[u8]) -> Result<Token, Error>
-where
-    T: SolType,
-{
-    Ok(decode_impl::<T>(data, false)?.token)
-}
-
-fn peek(data: &[u8], offset: usize, len: usize) -> Result<&[u8], Error> {
-    if offset + len > data.len() {
-        Err(Error::InvalidData)
-    } else {
-        Ok(&data[offset..(offset + len)])
-    }
-}
-
-pub(crate) fn peek_32_bytes(data: &[u8], offset: usize) -> Result<Word, Error> {
-    peek(data, offset, 32).map(|x| {
-        let mut out = Word::default();
-        out.as_fixed_bytes_mut().copy_from_slice(&x[0..32]);
-        out
-    })
-}
+use crate::{encode, Error, SolType, Token, Word};
 
 fn round_up_nearest_multiple(value: usize, padding: usize) -> usize {
     (value + padding - 1) / padding * padding
@@ -102,22 +31,209 @@ pub(crate) fn check_fixed_bytes(word: Word, len: usize) -> Result<(), Error> {
     }
 }
 
-pub(crate) fn take_bytes(
-    data: &[u8],
+pub(crate) fn as_usize(slice: Word) -> Result<usize, Error> {
+    check_zeroes(&slice[..28])?;
+
+    let result = ((slice[28] as usize) << 24)
+        + ((slice[29] as usize) << 16)
+        + ((slice[30] as usize) << 8)
+        + (slice[31] as usize);
+
+    Ok(result)
+}
+
+pub(crate) fn check_bool(slice: Word) -> Result<(), Error> {
+    check_zeroes(&slice[..31])?;
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+pub struct Decoder<'a> {
+    buf: &'a [u8],
     offset: usize,
-    len: usize,
+    is_params: bool,
     validate: bool,
-) -> Result<Vec<u8>, Error> {
-    if validate {
-        let padded_len = round_up_nearest_multiple(len, 32);
-        if offset + padded_len > data.len() {
-            return Err(Error::InvalidData);
+}
+
+impl std::fmt::Debug for Decoder<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Decoder")
+            .field("buf", &format!("0x{}", hex::encode(self.buf)))
+            .field("offset", &self.offset)
+            .field("is_params", &self.is_params)
+            .field("validate", &self.validate)
+            .finish()
+    }
+}
+
+impl<'a> Decoder<'a> {
+    pub fn new(buf: &'a [u8], is_params: bool, validate: bool) -> Self {
+        Self {
+            buf,
+            offset: 0,
+            is_params,
+            validate,
         }
-        check_zeroes(&data[(offset + len)..(offset + padded_len)])?;
-    } else if offset + len > data.len() {
+    }
+
+    fn child(&self, offset: usize) -> Result<Decoder<'a>, Error> {
+        if offset > self.buf.len() {
+            return Err(Error::Overrun);
+        }
+        Ok(Self {
+            buf: &self.buf[offset..],
+            offset: 0,
+            is_params: false,
+            validate: self.validate,
+        })
+    }
+
+    pub fn raw_child(&self) -> Decoder<'a> {
+        self.child(self.offset).unwrap()
+    }
+
+    fn increase_offset(&mut self, len: usize) {
+        self.offset += len;
+        self.is_params = false;
+    }
+
+    pub fn peek(&self, range: Range<usize>) -> Result<&'a [u8], Error> {
+        (self.buf.len() >= range.end)
+            .then(|| &self.buf[range])
+            .ok_or(Error::Overrun)
+    }
+
+    pub fn peek_len_at(&self, offset: usize, len: usize) -> Result<&'a [u8], Error> {
+        self.peek(offset..offset + len)
+    }
+
+    pub fn peek_len(&self, len: usize) -> Result<&'a [u8], Error> {
+        self.peek_len_at(self.offset, len)
+    }
+
+    pub fn peek_word_at(&self, offset: usize) -> Result<Word, Error> {
+        Ok(Word::from_slice(
+            self.peek_len_at(offset, Word::len_bytes())?,
+        ))
+    }
+
+    pub fn peek_word(&self) -> Result<Word, Error> {
+        self.peek_word_at(self.offset)
+    }
+
+    pub fn peek_usize_at(&self, offset: usize) -> Result<usize, Error> {
+        as_usize(self.peek_word_at(offset)?)
+    }
+
+    pub fn peek_usize(&self) -> Result<usize, Error> {
+        as_usize(self.peek_word()?)
+    }
+
+    pub fn take_word(&mut self) -> Result<Word, Error> {
+        let contents = self.peek_word()?;
+        self.increase_offset(Word::len_bytes());
+        Ok(contents)
+    }
+
+    pub fn take_indirection(&mut self) -> Result<Decoder<'a>, Error> {
+        let ptr = self.take_usize()?;
+        self.child(ptr)
+    }
+
+    pub fn take_usize(&mut self) -> Result<usize, Error> {
+        as_usize(self.take_word()?)
+    }
+
+    pub fn take_slice(&mut self, len: usize) -> Result<&[u8], Error> {
+        if self.validate {
+            let padded_len = round_up_nearest_multiple(len, 32);
+            if self.offset + padded_len > self.buf.len() {
+                return Err(Error::Overrun);
+            }
+            check_zeroes(self.peek(self.offset + len..self.offset + padded_len)?)?;
+        }
+        let res = self.peek_len(len)?;
+        self.increase_offset(len);
+        Ok(res)
+    }
+
+    pub fn validate(&self) -> bool {
+        self.validate
+    }
+
+    pub fn is_params(&self) -> bool {
+        self.is_params
+    }
+
+    pub fn take_offset(&mut self, child: Decoder<'a>) {
+        self.set_offset(child.offset + (self.buf.len() - child.buf.len()))
+    }
+
+    pub fn set_offset(&mut self, offset: usize) {
+        self.offset = offset;
+    }
+
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
+}
+
+#[doc(hidden)]
+#[derive(Debug)]
+pub struct DecodeResult {
+    pub token: Token,
+    pub new_offset: usize,
+}
+
+pub(crate) fn decode_impl<T>(data: &[u8], is_params: bool, validate: bool) -> crate::Result<Token>
+where
+    T: SolType,
+{
+    let mut decoder = Decoder::new(data, is_params, validate);
+
+    if data.is_empty() {
         return Err(Error::InvalidData);
     }
-    Ok(data[offset..(offset + len)].to_vec())
+    let token = T::read_token(&mut decoder)?;
+
+    if validate && encode([&token]) != data {
+        return Err(Error::ExtraData);
+    }
+
+    Ok(token)
+}
+
+/// Decodes ABI compliant vector of bytes into vector of tokens described by types param.
+/// Checks, that decoded data is exact as input provided
+pub fn decode_validate<T>(data: &[u8]) -> crate::Result<Token>
+where
+    T: SolType,
+{
+    decode_impl::<T>(data, false, true)
+}
+
+/// Decode top-level function args and validate
+pub fn decode_params_validate<T>(data: &[u8]) -> crate::Result<Token>
+where
+    T: SolType,
+{
+    decode_impl::<T>(data, true, true)
+}
+
+/// Decodes ABI compliant vector of bytes into vector of tokens described by types param.
+pub fn decode<T>(data: &[u8]) -> Result<Token, Error>
+where
+    T: SolType,
+{
+    decode_impl::<T>(data, false, false)
+}
+
+/// Decode top-level function args
+pub fn decode_params<T>(data: &[u8]) -> crate::Result<Token>
+where
+    T: SolType,
+{
+    decode_impl::<T>(data, true, false)
 }
 
 pub(crate) fn check_zeroes(data: &[u8]) -> Result<(), Error> {
@@ -135,7 +251,7 @@ mod tests {
 
     #[cfg(not(feature = "std"))]
     use crate::no_std_prelude::*;
-    use crate::{decode, decode_validate, sol_type, util::pad_u32, SolType, Token};
+    use crate::{decode, decode_params, decode_validate, sol_type, util::pad_u32, SolType, Token};
 
     #[test]
     fn decode_static_tuple_of_addresses_and_uints() {
@@ -296,16 +412,7 @@ mod tests {
             sol_type::Bool,
         );
 
-        dbg!(MyTy::hex_encode((
-            B160::repeat_byte(0x22),
-            (true, "spaceship".into(), "cyborg".into()),
-            B160::repeat_byte(0x33),
-            B160::repeat_byte(0x44),
-            false
-        )));
-        dbg!("helo");
-
-        let decoded = decode::<MyTy>(&encoded).unwrap();
+        let decoded = decode_params::<MyTy>(&encoded).unwrap();
         assert_eq!(decoded, expected);
     }
 
@@ -338,7 +445,7 @@ mod tests {
             sol_type::Address,
         );
 
-        let decoded = decode::<MyTy>(&encoded).unwrap();
+        let decoded = decode_params::<MyTy>(&encoded).unwrap();
         assert_eq!(decoded, expected);
     }
 
@@ -391,12 +498,12 @@ mod tests {
         let encoded = hex!(
             "
 			0000000000000000000000008497afefdc5ac170a664a231f6efb25526ef813f
-			0000000000000000000000000000000000000000000000000000000000000000
-			0000000000000000000000000000000000000000000000000000000000000000
+			0101010101010101010101010101010101010101010101010101010101010101
+			0202020202020202020202020202020202020202020202020202020202020202
 			0000000000000000000000000000000000000000000000000000000000000080
 			000000000000000000000000000000000000000000000000000000000000000a
 			3078303030303030314600000000000000000000000000000000000000000000
-		"
+		    "
         );
 
         type MyTy = (
@@ -407,11 +514,11 @@ mod tests {
         );
 
         assert_eq!(
-            decode::<MyTy>(&encoded,).unwrap(),
+            decode_params::<MyTy>(&encoded).unwrap(),
             Token::FixedSeq(vec![
                 sol_type::Address::tokenize(B160(hex!("8497afefdc5ac170a664a231f6efb25526ef813f"))),
-                Token::Word(B256([0u8; 32])),
-                Token::Word(B256([0u8; 32])),
+                Token::Word(B256::repeat_byte(0x01)),
+                Token::Word(B256::repeat_byte(0x02)),
                 Token::PackedSeq("0x0000001F".into()),
             ])
         )
@@ -424,7 +531,7 @@ mod tests {
 			0000000000000000000000000000000000000000000000000000000000000020
 			0000000000000000000000000000000000000000000000000000000000000004
 			e4b88de500000000000000000000000000000000000000000000000000000000
-        "
+            "
         );
 
         assert_eq!(
