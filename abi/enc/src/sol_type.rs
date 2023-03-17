@@ -25,10 +25,16 @@ pub trait SolType {
     /// Read a token from the
     fn read_token(decoder: &mut Decoder<'_>) -> crate::Result<Token>;
 
-    /// Encode a Rut type to an ABI blob
+    /// Encode a Rust type to an ABI blob
     fn encode(rust: Self::RustType) -> Vec<u8> {
         let token = Self::tokenize(rust);
-        crate::encode(&[token])
+        crate::encode_raw(&token)
+    }
+
+    /// Encode a Rust type
+    fn encode_params(rust: Self::RustType) -> Vec<u8> {
+        let token = Self::tokenize(rust);
+        crate::encode(&token)
     }
 
     /// Encode a Rust type to an ABI blob, then hex encode the blob

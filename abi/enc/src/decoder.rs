@@ -1,11 +1,12 @@
 // Copyright 2015-2020 Parity Technologies
+// Copyright 2023-2023 Ethers-rs Team
 //
 // Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
 // http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
 // <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
-
+//
 //! ABI decoder.
 
 use core::ops::Range;
@@ -49,9 +50,13 @@ pub(crate) fn check_bool(slice: Word) -> Result<(), Error> {
 
 #[derive(Clone, Copy)]
 pub struct Decoder<'a> {
+    // the underlying buffer
     buf: &'a [u8],
+    // the current offset in the buffer
     offset: usize,
+    // true if encoding a root-level tuple
     is_params: bool,
+    // true if we validate type correctness and blob re-encoding
     validate: bool,
 }
 
@@ -185,18 +190,37 @@ pub struct DecodeResult {
     pub new_offset: usize,
 }
 
-pub(crate) fn decode_impl<T>(data: &[u8], is_params: bool, validate: bool) -> crate::Result<Token>
+pub(crate) fn decode_params_impl<T>(data: &[u8], validate: bool) -> crate::Result<Token>
 where
     T: SolType,
 {
-    let mut decoder = Decoder::new(data, is_params, validate);
+    let mut decoder = Decoder::new(data, true, validate);
+
+    if data.is_empty() {
+        return Err(Error::InvalidData);
+    }
+
+    let token = T::read_token(&mut decoder)?;
+
+    if validate && encode(&token) != data {
+        return Err(Error::ExtraData);
+    }
+
+    Ok(token)
+}
+
+pub(crate) fn decode_impl<T>(data: &[u8], validate: bool) -> crate::Result<Token>
+where
+    T: SolType,
+{
+    let mut decoder = Decoder::new(data, false, validate);
 
     if data.is_empty() {
         return Err(Error::InvalidData);
     }
     let token = T::read_token(&mut decoder)?;
 
-    if validate && encode([&token]) != data {
+    if validate && encode(&token) != data {
         return Err(Error::ExtraData);
     }
 
@@ -209,7 +233,7 @@ pub fn decode_validate<T>(data: &[u8]) -> crate::Result<Token>
 where
     T: SolType,
 {
-    decode_impl::<T>(data, false, true)
+    decode_impl::<T>(data, true)
 }
 
 /// Decode top-level function args and validate
@@ -217,7 +241,7 @@ pub fn decode_params_validate<T>(data: &[u8]) -> crate::Result<Token>
 where
     T: SolType,
 {
-    decode_impl::<T>(data, true, true)
+    decode_params_impl::<T>(data, true)
 }
 
 /// Decodes ABI compliant vector of bytes into vector of tokens described by types param.
@@ -225,7 +249,7 @@ pub fn decode<T>(data: &[u8]) -> Result<Token, Error>
 where
     T: SolType,
 {
-    decode_impl::<T>(data, false, false)
+    decode_impl::<T>(data, false)
 }
 
 /// Decode top-level function args
@@ -233,7 +257,7 @@ pub fn decode_params<T>(data: &[u8]) -> crate::Result<Token>
 where
     T: SolType,
 {
-    decode_impl::<T>(data, true, false)
+    decode_params_impl::<T>(data, false)
 }
 
 pub(crate) fn check_zeroes(data: &[u8]) -> Result<(), Error> {

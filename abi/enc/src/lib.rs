@@ -29,7 +29,7 @@ mod decoder;
 pub use decoder::{decode, decode_params, decode_params_validate, decode_validate};
 
 mod encoder;
-pub use encoder::encode;
+pub use encoder::{encode, encode_raw};
 
 mod token;
 pub use token::Token;
