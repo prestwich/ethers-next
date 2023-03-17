@@ -571,8 +571,7 @@ macro_rules! impl_tuple_sol_type {
                     types.push($ty::sol_type_name());
                 )+
 
-                format!("({})", types.join(","))
-
+                format!("tuple({})", types.join(","))
             }
 
             fn type_check(token: &Token) -> bool {

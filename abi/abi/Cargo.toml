@@ -6,6 +6,5 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ethers-abi-derive = { version = "0.1.0", path = "../derive" }
 ethers-abi-enc = { version = "0.1.0", path = "../enc" }
 ethers-abi-file = { version = "0.1.0", path = "../file" }
