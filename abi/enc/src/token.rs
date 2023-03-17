@@ -104,121 +104,128 @@ impl Token {
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use ethers_primitives::B256;
+#[cfg(test)]
+mod tests {
+    use ethers_primitives::B256;
 
-//     #[cfg(not(feature = "std"))]
-//     use crate::no_std_prelude::*;
-//     use crate::{ParamType, Token};
+    #[cfg(not(feature = "std"))]
+    use crate::no_std_prelude::*;
+    use crate::{sol_type, SolType, Token};
 
-//     macro_rules! assert_type_check {
-//         ($left:expr, $right:expr,) => {
-//             assert!(Token::types_check($left.as_slice(), &$right.as_slice()))
-//         };
-//         ($left:expr, $right:expr) => {
-//             assert_type_check!($left, $right,)
-//         };
-//     }
+    macro_rules! assert_type_check {
+        ($sol:ty, $token:expr) => {
+            assert!(<$sol>::type_check($token))
+        };
+        ($sol:ty, $token:expr,) => {
+            assert_type_check!($sol, $token)
+        };
+    }
 
-//     macro_rules! assert_not_type_check {
-//         ($left:expr, $right:expr,) => {
-//             assert!(!Token::types_check($left.as_slice(), &$right.as_slice()))
-//         };
-//         ($left:expr, $right:expr) => {
-//             assert_not_type_check!($left, $right,)
-//         };
-//     }
+    macro_rules! assert_not_type_check {
+        ($sol:ty, $token:expr) => {
+            assert!(!<$sol>::type_check($token))
+        };
+        ($sol:ty, $token:expr,) => {
+            assert_not_type_check!($sol, $token)
+        };
+    }
 
-//     #[test]
-//     fn test_type_check() {
-//         assert_type_check!(
-//             vec![Token::Word(B256::default()), Token::Word(B256::default())],
-//             vec![ParamType::Uint(256), ParamType::Bool],
-//         );
-//         assert_type_check!(
-//             vec![Token::Word(B256::default()), Token::Word(B256::default())],
-//             vec![ParamType::Uint(32), ParamType::Bool],
-//         );
+    #[test]
+    fn test_type_check() {
+        assert_type_check!(
+            (sol_type::Uint<256>, sol_type::Bool),
+            &Token::FixedSeq(vec!(
+                Token::Word(B256::default()),
+                Token::Word(B256::default())
+            )),
+        );
+        assert_type_check!(
+            (sol_type::Uint<32>, sol_type::Bool),
+            &Token::FixedSeq(vec!(
+                Token::Word(B256::default()),
+                Token::Word(B256::default())
+            )),
+        );
 
-//         assert_not_type_check!(
-//             vec![Token::Word(B256::default())],
-//             vec![ParamType::Uint(32), ParamType::Bool],
-//         );
-//         assert_not_type_check!(
-//             vec![Token::Word(B256::default()), Token::Word(B256::default())],
-//             vec![ParamType::Uint(32)],
-//         );
-//         assert_type_check!(
-//             vec![Token::Word(B256::default()), Token::Word(B256::default())],
-//             vec![ParamType::Uint(32), ParamType::Bool],
-//         );
+        assert_not_type_check!(
+            (sol_type::Uint<32>, sol_type::Bool),
+            &Token::Word(B256::default()),
+        );
 
-//         assert_type_check!(
-//             vec![Token::DynSeq(vec![
-//                 Token::Word(B256::default()),
-//                 Token::Word(B256::default()),
-//             ])],
-//             vec![ParamType::Array(Box::new(ParamType::Bool))],
-//         );
-//         assert_type_check!(
-//             vec![Token::DynSeq(vec![
-//                 Token::Word(B256::default()),
-//                 Token::Word(B256::default()),
-//             ])],
-//             vec![ParamType::Array(Box::new(ParamType::Bool))],
-//         );
-//         assert_type_check!(
-//             vec![Token::DynSeq(vec![
-//                 Token::Word(B256::default()),
-//                 Token::Word(B256::default()),
-//             ])],
-//             vec![ParamType::Array(Box::new(ParamType::Address))],
-//         );
+        assert_not_type_check!(
+            sol_type::Uint<32>,
+            &Token::FixedSeq(vec![
+                Token::Word(B256::default()),
+                Token::Word(B256::default()),
+            ]),
+        );
+        assert_type_check!(
+            (sol_type::Uint<32>, sol_type::Bool),
+            &Token::FixedSeq(vec![
+                Token::Word(B256::default()),
+                Token::Word(B256::default())
+            ]),
+        );
 
-//         assert_type_check!(
-//             vec![Token::FixedSeq(vec![
-//                 Token::Word(B256::default()),
-//                 Token::Word(B256::default()),
-//             ])],
-//             vec![ParamType::FixedArray(Box::new(ParamType::Bool), 2)],
-//         );
-//         assert_not_type_check!(
-//             vec![Token::FixedSeq(vec![
-//                 Token::Word(B256::default()),
-//                 Token::Word(B256::default()),
-//             ])],
-//             vec![ParamType::FixedArray(Box::new(ParamType::Bool), 3)],
-//         );
-//         assert_type_check!(
-//             vec![Token::FixedSeq(vec![
-//                 Token::Word(B256::default()),
-//                 Token::Word(B256::default()),
-//             ])],
-//             vec![ParamType::FixedArray(Box::new(ParamType::Bool), 2)],
-//         );
-//         assert_type_check!(
-//             vec![Token::FixedSeq(vec![
-//                 Token::Word(B256::default()),
-//                 Token::Word(B256::default()),
-//             ])],
-//             vec![ParamType::FixedArray(Box::new(ParamType::Address), 2)],
-//         );
-//     }
+        assert_type_check!(
+            sol_type::Array<sol_type::Bool>,
+            &Token::DynSeq(vec![
+                Token::Word(B256::default()),
+                Token::Word(B256::default()),
+            ]),
+        );
+        assert_type_check!(
+            sol_type::Array<sol_type::Bool>,
+            &Token::DynSeq(vec![
+                Token::Word(B256::default()),
+                Token::Word(B256::default()),
+            ]),
+        );
+        assert_type_check!(
+            sol_type::Array<sol_type::Address>,
+            &Token::DynSeq(vec![
+                Token::Word(B256::default()),
+                Token::Word(B256::default()),
+            ]),
+        );
 
-//     #[test]
-//     fn test_is_dynamic() {
-//         assert!(!Token::Word(B256::default()).is_dynamic());
-//         assert!(Token::PackedSeq(vec![0, 0, 0, 0]).is_dynamic());
-//         assert!(!Token::Word(B256::default()).is_dynamic());
-//         assert!(!Token::Word(B256::default()).is_dynamic());
-//         assert!(!Token::Word(B256::default()).is_dynamic());
-//         assert!(Token::PackedSeq("".into()).is_dynamic());
-//         assert!(Token::DynSeq(vec![Token::Word(B256::default())]).is_dynamic());
-//         assert!(!Token::FixedSeq(vec![Token::Word(B256::default())]).is_dynamic());
-//         assert!(Token::FixedSeq(vec![Token::PackedSeq("".into())]).is_dynamic());
-//         assert!(
-//             Token::FixedSeq(vec![Token::DynSeq(vec![Token::Word(B256::default())])]).is_dynamic()
-//         );
-//     }
-// }
+        assert_type_check!(
+            sol_type::FixedArray<sol_type::Bool, 2>,
+            &Token::FixedSeq(vec![
+                Token::Word(B256::default()),
+                Token::Word(B256::default()),
+            ]),
+        );
+        assert_not_type_check!(
+            sol_type::FixedArray<sol_type::Bool, 3>,
+            &Token::FixedSeq(vec![
+                Token::Word(B256::default()),
+                Token::Word(B256::default()),
+            ]),
+        );
+
+        assert_type_check!(
+            sol_type::FixedArray<sol_type::Address, 2>,
+            &Token::FixedSeq(vec![
+                Token::Word(B256::default()),
+                Token::Word(B256::default()),
+            ]),
+        );
+    }
+
+    #[test]
+    fn test_is_dynamic() {
+        assert!(!Token::Word(B256::default()).is_dynamic());
+        assert!(Token::PackedSeq(vec![0, 0, 0, 0]).is_dynamic());
+        assert!(!Token::Word(B256::default()).is_dynamic());
+        assert!(!Token::Word(B256::default()).is_dynamic());
+        assert!(!Token::Word(B256::default()).is_dynamic());
+        assert!(Token::PackedSeq("".into()).is_dynamic());
+        assert!(Token::DynSeq(vec![Token::Word(B256::default())]).is_dynamic());
+        assert!(!Token::FixedSeq(vec![Token::Word(B256::default())]).is_dynamic());
+        assert!(Token::FixedSeq(vec![Token::PackedSeq("".into())]).is_dynamic());
+        assert!(
+            Token::FixedSeq(vec![Token::DynSeq(vec![Token::Word(B256::default())])]).is_dynamic()
+        );
+    }
+}
