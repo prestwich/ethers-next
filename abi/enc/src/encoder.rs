@@ -180,8 +180,6 @@ fn encode_impl<'a>(tokens: impl IntoIterator<Item = &'a Token>) -> Bytes {
 }
 
 /// Encode a token to a bytearray.
-///
-///
 pub fn encode(token: &Token) -> Bytes {
     match token {
         Token::FixedSeq(v) => encode_impl(v),
